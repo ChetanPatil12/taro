@@ -12,9 +12,7 @@
   "dependencies": {
     "@taro/shared": "workspace:*",
     "dotenv": "^17.4.2",
-    "fastify": "^5.12.1"
-  },
-  "devDependencies": {
+    "fastify": "^5.12.1",
     "tsx": "^4.23.12"
   }
 }

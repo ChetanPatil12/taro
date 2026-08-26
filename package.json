@@ -6,7 +6,7 @@
   "description": "Autonomous multi-party workflow coordination on the TrueForge agent harness",
   "license": "MIT",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.13.0"
   },
   "packageManager": "pnpm@11.24.0",
   "scripts": {
