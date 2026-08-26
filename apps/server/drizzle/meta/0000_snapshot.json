@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "6edee3a4-f3a1-453c-9bc1-e08188336389",
+  "id": "acc333fe-1eea-4162-b560-b4641a6c40e1",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "approvals": {
@@ -369,12 +369,12 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "files_party_id_parties_id_fk": {
-          "name": "files_party_id_parties_id_fk",
+        "files_party_owned_by_job_fk": {
+          "name": "files_party_owned_by_job_fk",
           "tableFrom": "files",
           "tableTo": "parties",
-          "columnsFrom": ["party_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": ["job_id", "party_id"],
+          "columnsTo": ["job_id", "id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -467,12 +467,12 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "job_log_party_id_parties_id_fk": {
-          "name": "job_log_party_id_parties_id_fk",
+        "job_log_party_owned_by_job_fk": {
+          "name": "job_log_party_owned_by_job_fk",
           "tableFrom": "job_log",
           "tableTo": "parties",
-          "columnsFrom": ["party_id"],
-          "columnsTo": ["id"],
+          "columnsFrom": ["job_id", "party_id"],
+          "columnsTo": ["job_id", "id"],
           "onDelete": "no action",
           "onUpdate": "no action"
         }
@@ -603,6 +603,11 @@
           "name": "parties_job_idx",
           "columns": ["job_id"],
           "isUnique": false
+        },
+        "parties_job_id_id_uidx": {
+          "name": "parties_job_id_id_uidx",
+          "columns": ["job_id", "id"],
+          "isUnique": true
         }
       },
       "foreignKeys": {

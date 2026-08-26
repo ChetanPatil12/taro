@@ -19,12 +19,19 @@ export function createDb(databasePath: string) {
     mkdirSync(dirname(databasePath), { recursive: true });
   }
   const sqlite = new Database(databasePath);
-  sqlite.pragma('journal_mode = WAL');
-  sqlite.pragma('foreign_keys = ON');
+  try {
+    sqlite.pragma('journal_mode = WAL');
+    sqlite.pragma('foreign_keys = ON');
 
-  const db = drizzle(sqlite, { schema });
-  migrate(db, { migrationsFolder });
-  return db;
+    const db = drizzle(sqlite, { schema });
+    migrate(db, { migrationsFolder });
+    return db;
+  } catch (err) {
+    // Don't leak the native handle (and its file lock) if pragmas or
+    // migrations throw — close first, then let the caller see the error.
+    sqlite.close();
+    throw err;
+  }
 }
 
 export { schema };

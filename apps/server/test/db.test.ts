@@ -73,6 +73,58 @@ describe('database schema', () => {
     expect(db.select().from(schema.jobLog).all()).toHaveLength(0);
   });
 
+  it('rejects log entries attributing a party to a different job', () => {
+    const jobA = insertJob();
+    const jobB = insertJob();
+    const partyOfB = randomUUID();
+    db.insert(schema.parties).values({ id: partyOfB, jobId: jobB, name: 'Mike', role: 'pm' }).run();
+
+    expect(() =>
+      db
+        .insert(schema.jobLog)
+        .values({
+          id: randomUUID(),
+          jobId: jobA,
+          partyId: partyOfB,
+          direction: 'inbound',
+          message: 'x',
+        })
+        .run(),
+    ).toThrow(/FOREIGN KEY/i);
+  });
+
+  it('allows log entries without a party (system events)', () => {
+    const jobId = insertJob();
+    db.insert(schema.jobLog)
+      .values({ id: randomUUID(), jobId, direction: 'system', message: 'job created' })
+      .run();
+    expect(db.select().from(schema.jobLog).all()).toHaveLength(1);
+  });
+
+  it('rejects files attributed to a party of a different job', () => {
+    const jobA = insertJob();
+    const jobB = insertJob();
+    const partyOfB = randomUUID();
+    db.insert(schema.parties)
+      .values({ id: partyOfB, jobId: jobB, name: 'Bob', role: 'subcontractor' })
+      .run();
+
+    expect(() =>
+      db
+        .insert(schema.files)
+        .values({
+          id: randomUUID(),
+          jobId: jobA,
+          partyId: partyOfB,
+          name: 'quote.pdf',
+          mime: 'application/pdf',
+          size: 1024,
+          path: '/tmp/quote.pdf',
+        })
+        .run(),
+    ).toThrow(/FOREIGN KEY/i);
+  });
+
   it('stores registry commitments queryable by normalized name', () => {
     db.insert(schema.partyRegistry)
       .values({

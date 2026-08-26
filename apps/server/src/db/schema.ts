@@ -1,4 +1,11 @@
-import { index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import {
+  foreignKey,
+  index,
+  integer,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from 'drizzle-orm/sqlite-core';
 import { sql } from 'drizzle-orm';
 import type {
   ApprovalDecision,
@@ -41,7 +48,11 @@ export const parties = sqliteTable(
     instructions: text('instructions').notNull().default(''),
     status: text('status').notNull().default('idle'),
   },
-  (t) => [index('parties_job_idx').on(t.jobId)],
+  (t) => [
+    index('parties_job_idx').on(t.jobId),
+    // Composite FK target: lets child tables prove a party belongs to a job.
+    uniqueIndex('parties_job_id_id_uidx').on(t.jobId, t.id),
+  ],
 );
 
 export const steps = sqliteTable(
@@ -77,14 +88,25 @@ export const jobLog = sqliteTable(
     jobId: text('job_id')
       .notNull()
       .references(() => jobs.id, { onDelete: 'cascade' }),
-    partyId: text('party_id').references(() => parties.id),
+    partyId: text('party_id'),
     direction: text('direction').$type<MessageDirection>().notNull(),
     message: text('message').notNull(),
     messageType: text('message_type').$type<MessageType>().notNull().default('chat'),
     metadata: text('metadata', { mode: 'json' }).$type<Record<string, unknown>>(),
     createdAt: createdAt(),
   },
-  (t) => [index('job_log_job_idx').on(t.jobId), index('job_log_party_idx').on(t.partyId)],
+  (t) => [
+    index('job_log_job_idx').on(t.jobId),
+    index('job_log_party_idx').on(t.partyId),
+    // (jobId, partyId) must match the party's owning job, so a log row can
+    // never attribute a message to a party from a different job. SQLite
+    // skips the check when partyId is NULL (system entries).
+    foreignKey({
+      columns: [t.jobId, t.partyId],
+      foreignColumns: [parties.jobId, parties.id],
+      name: 'job_log_party_owned_by_job_fk',
+    }),
+  ],
 );
 
 export const conflicts = sqliteTable(
@@ -153,16 +175,22 @@ export const files = sqliteTable(
     jobId: text('job_id')
       .notNull()
       .references(() => jobs.id, { onDelete: 'cascade' }),
-    partyId: text('party_id')
-      .notNull()
-      .references(() => parties.id),
+    partyId: text('party_id').notNull(),
     name: text('name').notNull(),
     mime: text('mime').notNull(),
     size: integer('size').notNull(),
     path: text('path').notNull(),
     createdAt: createdAt(),
   },
-  (t) => [index('files_job_idx').on(t.jobId)],
+  (t) => [
+    index('files_job_idx').on(t.jobId),
+    // Uploads are always attributed to a party of the same job.
+    foreignKey({
+      columns: [t.jobId, t.partyId],
+      foreignColumns: [parties.jobId, parties.id],
+      name: 'files_party_owned_by_job_fk',
+    }),
+  ],
 );
 
 export const partyRegistry = sqliteTable(

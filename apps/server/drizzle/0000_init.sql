@@ -52,7 +52,7 @@ CREATE TABLE `files` (
 	`path` text NOT NULL,
 	`created_at` text DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) NOT NULL,
 	FOREIGN KEY (`job_id`) REFERENCES `jobs`(`id`) ON UPDATE no action ON DELETE cascade,
-	FOREIGN KEY (`party_id`) REFERENCES `parties`(`id`) ON UPDATE no action ON DELETE no action
+	FOREIGN KEY (`job_id`,`party_id`) REFERENCES `parties`(`job_id`,`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
 CREATE INDEX `files_job_idx` ON `files` (`job_id`);--> statement-breakpoint
@@ -66,7 +66,7 @@ CREATE TABLE `job_log` (
 	`metadata` text,
 	`created_at` text DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) NOT NULL,
 	FOREIGN KEY (`job_id`) REFERENCES `jobs`(`id`) ON UPDATE no action ON DELETE cascade,
-	FOREIGN KEY (`party_id`) REFERENCES `parties`(`id`) ON UPDATE no action ON DELETE no action
+	FOREIGN KEY (`job_id`,`party_id`) REFERENCES `parties`(`job_id`,`id`) ON UPDATE no action ON DELETE no action
 );
 --> statement-breakpoint
 CREATE INDEX `job_log_job_idx` ON `job_log` (`job_id`);--> statement-breakpoint
@@ -93,6 +93,7 @@ CREATE TABLE `parties` (
 );
 --> statement-breakpoint
 CREATE INDEX `parties_job_idx` ON `parties` (`job_id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `parties_job_id_id_uidx` ON `parties` (`job_id`,`id`);--> statement-breakpoint
 CREATE TABLE `party_registry` (
 	`id` text PRIMARY KEY NOT NULL,
 	`party_name_normalized` text NOT NULL,
