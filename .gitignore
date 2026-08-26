@@ -1,0 +1,30 @@
+# dependencies
+node_modules/
+
+# builds
+dist/
+build/
+*.tsbuildinfo
+
+# environment — never commit secrets
+.env
+.env.*
+!.env.example
+
+# databases
+*.db
+*.db-journal
+*.sqlite
+
+# runtime data
+data/
+
+# logs
+*.log
+
+# OS
+.DS_Store
+
+# editors
+.vscode/
+.idea/
