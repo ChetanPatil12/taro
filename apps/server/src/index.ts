@@ -3,6 +3,7 @@ import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
 import { createDb } from './db/index.js';
 import { JobDriver } from './trueforge/driver.js';
+import { ensureTaroMcpServer } from './trueforge/ensure.js';
 import { ensureOrchestratorAgent } from './trueforge/orchestrator.js';
 
 const config = loadConfig();
@@ -18,8 +19,10 @@ const app = await buildApp({
 });
 
 try {
+  const mcpUrl = process.env.MCP_PUBLIC_URL ?? `http://localhost:${config.port}/mcp`;
+  await ensureTaroMcpServer(config.trueforgeUrl, mcpUrl, config.mcpSharedSecret);
   await ensureOrchestratorAgent(client, config.orchestratorModel);
-  app.log.info('taro-orchestrator agent registered with TrueForge');
+  app.log.info('taro MCP server + orchestrator agent registered with TrueForge');
 } catch (err) {
   app.log.warn(
     { err },
