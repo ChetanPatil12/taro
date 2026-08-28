@@ -11,3 +11,16 @@ describe('GET /api/health', () => {
     await app.close();
   });
 });
+
+describe('POST /mcp auth', () => {
+  it('rejects requests without the shared secret when one is configured', async () => {
+    const app = await buildApp({ db: createDb(':memory:'), mcpSharedSecret: 's3cret' });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/mcp',
+      payload: { jsonrpc: '2.0', method: 'tools/list', id: 1 },
+    });
+    expect(res.statusCode).toBe(401);
+    await app.close();
+  });
+});

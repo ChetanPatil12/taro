@@ -12,14 +12,19 @@ dotenv.config({ path: [resolve(here, '../.env'), resolve(here, '../../../.env')]
 
 export interface ServerConfig {
   port: number;
+  /** Bind address. Defaults to loopback; set HOST=0.0.0.0 only behind a proxy. */
+  host: string;
   databasePath: string;
   trueforgeUrl: string;
+  mcpSharedSecret: string | undefined;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   return {
     port: Number(env.PORT ?? 8000),
+    host: env.HOST ?? '127.0.0.1',
     databasePath: env.DATABASE_PATH ?? './data/taro.db',
     trueforgeUrl: env.TRUEFORGE_URL ?? 'http://localhost:8790',
+    mcpSharedSecret: env.MCP_SHARED_SECRET || undefined,
   };
 }

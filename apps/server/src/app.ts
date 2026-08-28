@@ -13,6 +13,8 @@ declare module 'fastify' {
 
 export interface BuildAppOptions {
   db: TaroDb;
+  /** Require this bearer token on /mcp (TrueForge header auth). */
+  mcpSharedSecret?: string;
   logger?: boolean;
 }
 
@@ -36,7 +38,7 @@ export async function buildApp(opts: BuildAppOptions) {
     app.hub.register(jobId, socket);
   });
 
-  registerMcpRoute(app);
+  registerMcpRoute(app, opts.mcpSharedSecret);
 
   return app;
 }

@@ -153,6 +153,46 @@ describe('MCP tools', () => {
     expect(excluded.available).toBe(true);
   });
 
+  it('clears completedAt and reopens the job when a step regresses', () => {
+    tools.update_step_status({ job_id: jobId, step_id: step1, status: 'complete' });
+    tools.update_step_status({ job_id: jobId, step_id: step2, status: 'complete' });
+    expect(tools.get_job_state({ job_id: jobId }).job.status).toBe('completed');
+
+    tools.update_step_status({ job_id: jobId, step_id: step2, status: 'blocked' });
+    const state = tools.get_job_state({ job_id: jobId });
+    expect(state.job.status).toBe('active');
+    const step = state.steps.find((s) => s.id === step2);
+    expect(step?.completedAt).toBeNull();
+    expect(step?.status).toBe('blocked');
+  });
+
+  it('next_available_date skips adjacent later bookings', () => {
+    const seed = (start: string, end: string) =>
+      db
+        .insert(schema.partyRegistry)
+        .values({
+          id: randomUUID(),
+          partyNameNormalized: 'crew',
+          partyType: 'subcontractor',
+          jobId: 'other',
+          jobTitle: 'Other',
+          startDate: start,
+          endDate: end,
+        })
+        .run();
+    seed('2027-01-01', '2027-01-10');
+    seed('2027-01-11', '2027-01-15');
+
+    const res = tools.check_resource_availability({
+      party_name: 'Crew',
+      proposed_start_date: '2027-01-02',
+      proposed_end_date: '2027-01-04',
+    });
+    expect(res.available).toBe(false);
+    // Jan 11 (day after first booking) is itself booked — must land after both.
+    expect(res.next_available_date).toBe('2027-01-16');
+  });
+
   it('save_execution_plan stores the plan and moves the job to awaiting_approval', () => {
     const res = tools.save_execution_plan({
       job_id: jobId,

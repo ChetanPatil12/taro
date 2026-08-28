@@ -194,10 +194,21 @@ export function createTools(db: TaroDb, hub: WsHub) {
         .set({
           status: args.status,
           notes: args.notes ?? step.notes,
-          completedAt: args.status === 'complete' ? nowIso() : step.completedAt,
+          // A step moved out of 'complete' must not keep a stale timestamp.
+          completedAt: args.status === 'complete' ? nowIso() : null,
         })
         .where(eq(schema.steps.id, step.id))
         .run();
+
+      // Reopen a completed job if one of its steps regresses.
+      const jobRow = requireJob(args.job_id);
+      if (jobRow.status === 'completed' && args.status !== 'complete') {
+        db.update(schema.jobs)
+          .set({ status: 'active' })
+          .where(eq(schema.jobs.id, args.job_id))
+          .run();
+        hub.broadcast({ event: 'job_status', jobId: args.job_id, status: 'active' });
+      }
 
       appendLog({
         jobId: args.job_id,
@@ -334,18 +345,40 @@ export function createTools(db: TaroDb, hub: WsHub) {
         .filter((r) => r.status === 'active' && r.jobId !== args.requesting_job_id);
 
       // ISO dates compare lexicographically: overlap = start <= otherEnd && end >= otherStart
-      const conflicts = rows.filter(
-        (r) => args.proposed_start_date <= r.endDate && args.proposed_end_date >= r.startDate,
-      );
+      const overlaps = (start: string, end: string) =>
+        rows.filter((r) => start <= r.endDate && end >= r.startDate);
+      const addDays = (iso: string, days: number) => {
+        const d = new Date(`${iso}T00:00:00Z`);
+        d.setUTCDate(d.getUTCDate() + days);
+        return d.toISOString().slice(0, 10);
+      };
+      const conflicts = overlaps(args.proposed_start_date, args.proposed_end_date);
+
+      // Walk forward past EVERY commitment (not only those overlapping the
+      // original proposal) until a window of the same duration is free.
       let nextAvailable: string | null = null;
       if (conflicts.length > 0) {
-        const latestEnd = conflicts
-          .map((c) => c.endDate)
-          .sort()
-          .at(-1)!;
-        const d = new Date(`${latestEnd}T00:00:00Z`);
-        d.setUTCDate(d.getUTCDate() + 1);
-        nextAvailable = d.toISOString().slice(0, 10);
+        const durationDays = Math.max(
+          0,
+          Math.round(
+            (Date.parse(`${args.proposed_end_date}T00:00:00Z`) -
+              Date.parse(`${args.proposed_start_date}T00:00:00Z`)) /
+              86_400_000,
+          ),
+        );
+        let candidate = args.proposed_start_date;
+        for (let i = 0; i < 365; i++) {
+          const clash = overlaps(candidate, addDays(candidate, durationDays));
+          if (clash.length === 0) {
+            nextAvailable = candidate;
+            break;
+          }
+          const latestEnd = clash
+            .map((c) => c.endDate)
+            .sort()
+            .at(-1)!;
+          candidate = addDays(latestEnd, 1);
+        }
       }
       return {
         available: conflicts.length === 0,
