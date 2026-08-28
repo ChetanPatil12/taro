@@ -16,6 +16,9 @@ export interface ServerConfig {
   host: string;
   databasePath: string;
   trueforgeUrl: string;
+  orchestratorModel: string;
+  artifactsDir: string;
+  filesDir: string;
   mcpSharedSecret: string | undefined;
 }
 
@@ -25,6 +28,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     host: env.HOST ?? '127.0.0.1',
     databasePath: env.DATABASE_PATH ?? './data/taro.db',
     trueforgeUrl: env.TRUEFORGE_URL ?? 'http://localhost:8790',
+    orchestratorModel: env.ORCHESTRATOR_MODEL ?? 'openai/gpt-5-1',
+    artifactsDir: env.ARTIFACTS_DIR ?? './data/artifacts',
+    filesDir: env.FILES_DIR ?? './data/files',
     mcpSharedSecret: env.MCP_SHARED_SECRET || undefined,
   };
 }
