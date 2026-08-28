@@ -4,7 +4,7 @@ import { createDb } from '../src/db/index.js';
 
 describe('GET /api/health', () => {
   it('responds ok', async () => {
-    const app = buildApp({ db: createDb(':memory:') });
+    const app = await buildApp({ db: createDb(':memory:') });
     const res = await app.inject({ method: 'GET', url: '/api/health' });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ status: 'ok', service: 'taro-server' });
