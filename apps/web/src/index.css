@@ -1,0 +1,78 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Playfair+Display:ital,wght@0,400;0,600;0,700;0,900;1,400&family=Lora:ital,wght@0,400;0,600;1,400&display=swap');
+@import 'tailwindcss';
+
+@theme {
+  --color-background: #f9f9f7;
+  --color-foreground: #111111;
+  --color-muted: #e5e5e0;
+  --color-accent: #cc0000;
+}
+
+/* Newsprint: every element is a rectangle. No exceptions. */
+*,
+::before,
+::after {
+  border-radius: 0 !important;
+}
+
+.font-serif {
+  font-family: 'Playfair Display', 'Times New Roman', serif;
+}
+.font-body {
+  font-family: 'Lora', Georgia, serif;
+}
+.font-sans {
+  font-family: 'Inter', 'Helvetica Neue', sans-serif;
+}
+.font-mono {
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+}
+
+body {
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  font-family: 'Inter', 'Helvetica Neue', sans-serif;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4' viewBox='0 0 4 4'%3E%3Cpath fill='%23111111' fill-opacity='0.04' d='M1 3h1v1H1V3zm2-2h1v1H3V1z'%3E%3C/path%3E%3C/svg%3E");
+}
+
+.hard-shadow-hover {
+  transition: all 200ms ease-out;
+}
+.hard-shadow-hover:hover {
+  box-shadow: 4px 4px 0px 0px #111111;
+  transform: translate(-2px, -2px);
+}
+
+/* AgentActivity marquee ticker */
+@keyframes ticker-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+.ticker-track {
+  display: inline-flex;
+  white-space: nowrap;
+  animation: ticker-scroll 30s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ticker-track {
+    animation: none;
+  }
+}
+
+/* Active DAG step pulse (mechanical, not springy) */
+@keyframes step-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.step-active-glyph {
+  animation: step-pulse 1.4s steps(2, jump-none) infinite;
+}
