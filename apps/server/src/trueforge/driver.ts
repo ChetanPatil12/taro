@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { and, eq, isNull, like } from 'drizzle-orm';
 import type { TrueForge } from '@truefoundry/trueforge-sdk';
 import type { TaroDb } from '../db/index.js';
@@ -122,28 +122,45 @@ export class JobDriver {
       rejectionReason: reason ?? null,
     });
 
-    // Resume the job unless other approvals are still waiting.
+    // A paused turn may hold SEVERAL gated tool calls; TrueForge requires
+    // every pending approval in ONE resume turn. So: wait until nothing is
+    // undecided, then send all not-yet-resumed decisions together.
     const stillPending = this.db
       .select()
       .from(schema.approvals)
       .where(and(eq(schema.approvals.jobId, jobId), isNull(schema.approvals.decision)))
       .all();
-    if (stillPending.length === 0) {
-      this.db.update(schema.jobs).set({ status: 'active' }).where(eq(schema.jobs.id, jobId)).run();
-      this.hub.broadcast({ event: 'job_status', jobId, status: 'active' });
-    }
+    if (stillPending.length > 0) return;
 
-    this.enqueue(jobId, [
-      {
+    this.db.update(schema.jobs).set({ status: 'active' }).where(eq(schema.jobs.id, jobId)).run();
+    this.hub.broadcast({ event: 'job_status', jobId, status: 'active' });
+
+    const unsent = this.db
+      .select()
+      .from(schema.approvals)
+      .where(and(eq(schema.approvals.jobId, jobId), eq(schema.approvals.resumed, 0)))
+      .all()
+      .filter((a) => a.decision !== null);
+    if (unsent.length === 0) return;
+    for (const a of unsent) {
+      this.db
+        .update(schema.approvals)
+        .set({ resumed: 1 })
+        .where(eq(schema.approvals.id, a.id))
+        .run();
+    }
+    this.enqueue(
+      jobId,
+      unsent.map((a) => ({
         type: 'user.tool_approval',
-        threadId: approval.threadId,
-        toolCallId: approval.toolCallId,
+        threadId: a.threadId,
+        toolCallId: a.toolCallId,
         approval:
-          decision === 'approved'
+          a.decision === 'approved'
             ? { status: 'allow' }
-            : { status: 'deny', reason: reason ?? 'Rejected by the user.' },
-      },
-    ]);
+            : { status: 'deny', reason: a.rejectionReason ?? 'Rejected by the user.' },
+      })),
+    );
   }
 
   /**
@@ -318,7 +335,8 @@ export class JobDriver {
         if (!res.ok) throw new Error(`download failed: HTTP ${res.status}`);
         const bytes = Buffer.from(await res.arrayBuffer());
         mkdirSync(this.artifactsDir, { recursive: true });
-        const localPath = join(this.artifactsDir, `${artifact.id}-${artifact.name}`);
+        const safeName = basename(artifact.name).replace(/[^\w.\- ]/g, '_') || 'artifact';
+        const localPath = join(this.artifactsDir, `${artifact.id}-${safeName}`);
         writeFileSync(localPath, bytes);
         this.db
           .update(schema.artifacts)
@@ -338,6 +356,14 @@ export class JobDriver {
           },
         });
       } catch (err) {
+        // Mark failed instead of leaving it pending: a later turn's sandbox
+        // would not contain this file, so retrying with a new turn id can
+        // never succeed and would mask the real failure.
+        this.db
+          .update(schema.artifacts)
+          .set({ path: `failed:${sandboxPath}` })
+          .where(eq(schema.artifacts.id, artifact.id))
+          .run();
         this.activity(
           jobId,
           'status',

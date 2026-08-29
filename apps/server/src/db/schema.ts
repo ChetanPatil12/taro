@@ -147,6 +147,8 @@ export const approvals = sqliteTable(
     decision: text('decision').$type<ApprovalDecision>(),
     rejectionReason: text('rejection_reason'),
     decidedAt: text('decided_at'),
+    /** 1 once this decision has been sent back to the harness in a resume turn. */
+    resumed: integer('resumed').notNull().default(0),
     createdAt: createdAt(),
   },
   (t) => [index('approvals_job_idx').on(t.jobId)],

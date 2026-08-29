@@ -115,6 +115,45 @@ describe('REST API', () => {
     );
   });
 
+  it('loads the preset twice without duplicating registry commitments', async () => {
+    await app.inject({ method: 'POST', url: '/api/jobs/preset' });
+    await app.inject({ method: 'POST', url: '/api/jobs/preset' });
+    const rows = app.db
+      .select()
+      .from((await import('../src/db/index.js')).schema.partyRegistry)
+      .all();
+    expect(rows).toHaveLength(1);
+  });
+
+  it('stores uploads under filesDir even for traversal filenames', async () => {
+    const create = await app.inject({ method: 'POST', url: '/api/jobs/preset' });
+    const { job_id } = create.json();
+    const state = await app.inject({ method: 'GET', url: `/api/jobs/${job_id}` });
+    const sarah = state.json().parties.find((p: { name: string }) => p.name === 'Sarah Chen');
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/jobs/${job_id}/message`,
+      payload: {
+        party_id: sarah.id,
+        message: 'file attached',
+        file: {
+          name: '../../../../tmp/evil.txt',
+          mime: 'text/plain',
+          data_base64: Buffer.from('x').toString('base64'),
+        },
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const files = app.db
+      .select()
+      .from((await import('../src/db/index.js')).schema.files)
+      .all();
+    expect(files).toHaveLength(1);
+    expect(files[0]?.path.startsWith('/tmp/taro-test-files/')).toBe(true);
+    expect(files[0]?.path.includes('..')).toBe(false);
+  });
+
   it('validates approval decisions', async () => {
     const create = await app.inject({ method: 'POST', url: '/api/jobs/preset' });
     const { job_id } = create.json();

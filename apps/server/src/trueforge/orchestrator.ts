@@ -102,6 +102,10 @@ export function orchestratorSpec(model: string) {
       {
         name: 'taro',
         enable_tools: ['@all'],
+        // Preload all 9 schemas: they sit in the stable prompt prefix (so
+        // OpenAI's prompt cache covers them at ~10% input price) and the
+        // model skips the list_tools discovery round-trip each turn.
+        preload_tools: ['@all'],
         require_approval_for_tools: ['commit_decision'],
       },
     ],

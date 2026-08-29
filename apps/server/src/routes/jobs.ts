@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createReadStream, existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { asc, desc, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { JobDefinition } from '@taro/shared';
@@ -79,7 +79,14 @@ export function registerJobRoutes(app: FastifyInstance, filesDir: string): void 
       return reply.code(400).send({ error: 'at least one step is required' });
     }
     const jobId = insertJobFromDefinition(def);
-    await app.driver.startJob(jobId);
+    try {
+      await app.driver.startJob(jobId);
+    } catch (err) {
+      db.update(schema.jobs).set({ status: 'failed' }).where(eq(schema.jobs.id, jobId)).run();
+      return reply
+        .code(502)
+        .send({ error: `agent session could not start: ${(err as Error).message}`, job_id: jobId });
+    }
     return reply.code(201).send({ job_id: jobId });
   });
 
@@ -92,6 +99,10 @@ export function registerJobRoutes(app: FastifyInstance, filesDir: string): void 
     start.setUTCDate(start.getUTCDate() + ROOFING_REGISTRY_SEED.startOffsetDays);
     const end = new Date(start);
     end.setUTCDate(end.getUTCDate() + ROOFING_REGISTRY_SEED.durationDays - 1);
+    // Idempotent seed: repeated demo loads must not accumulate duplicates.
+    db.delete(schema.partyRegistry)
+      .where(eq(schema.partyRegistry.jobId, ROOFING_REGISTRY_SEED.jobId))
+      .run();
     db.insert(schema.partyRegistry)
       .values({
         id: randomUUID(),
@@ -104,7 +115,14 @@ export function registerJobRoutes(app: FastifyInstance, filesDir: string): void 
       })
       .run();
 
-    await app.driver.startJob(jobId);
+    try {
+      await app.driver.startJob(jobId);
+    } catch (err) {
+      db.update(schema.jobs).set({ status: 'failed' }).where(eq(schema.jobs.id, jobId)).run();
+      return reply
+        .code(502)
+        .send({ error: `agent session could not start: ${(err as Error).message}`, job_id: jobId });
+    }
     return reply.code(201).send({ job_id: jobId });
   });
 
@@ -162,7 +180,10 @@ export function registerJobRoutes(app: FastifyInstance, filesDir: string): void 
       }
       mkdirSync(filesDir, { recursive: true });
       const fileId = randomUUID();
-      const path = join(filesDir, `${fileId}-${body.file.name}`);
+      // basename + charset allowlist: client filenames are untrusted and
+      // must never influence the directory part of the path.
+      const safeName = basename(body.file.name).replace(/[^\w.\- ]/g, '_') || 'upload';
+      const path = join(filesDir, `${fileId}-${safeName}`);
       writeFileSync(path, bytes);
       db.insert(schema.files)
         .values({
@@ -226,7 +247,7 @@ export function registerJobRoutes(app: FastifyInstance, filesDir: string): void 
         name: a.name,
         kind: a.kind,
         version: a.version,
-        ready: !a.path.startsWith('pending:'),
+        ready: !a.path.startsWith('pending:') && !a.path.startsWith('failed:'),
         createdAt: a.createdAt,
       })),
     };

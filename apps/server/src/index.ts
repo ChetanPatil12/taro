@@ -18,16 +18,29 @@ const app = await buildApp({
   makeDriver: (hub) => new JobDriver(db, hub, client, config.trueforgeUrl, config.artifactsDir),
 });
 
-try {
-  const mcpUrl = process.env.MCP_PUBLIC_URL ?? `http://localhost:${config.port}/mcp`;
-  await ensureTaroMcpServer(config.trueforgeUrl, mcpUrl, config.mcpSharedSecret);
-  await ensureOrchestratorAgent(client, config.orchestratorModel);
-  app.log.info('taro MCP server + orchestrator agent registered with TrueForge');
-} catch (err) {
-  app.log.warn(
-    { err },
-    'could not register orchestrator agent — is TrueForge running? Jobs will fail to start until it is.',
-  );
+async function registerWithTrueForge(): Promise<boolean> {
+  try {
+    const mcpUrl = process.env.MCP_PUBLIC_URL ?? `http://localhost:${config.port}/mcp`;
+    await ensureTaroMcpServer(config.trueforgeUrl, mcpUrl, config.mcpSharedSecret);
+    await ensureOrchestratorAgent(client, config.orchestratorModel);
+    app.log.info('taro MCP server + orchestrator agent registered with TrueForge');
+    return true;
+  } catch (err) {
+    app.log.warn(
+      { err },
+      'TrueForge registration failed — retrying every 15s until it is reachable.',
+    );
+    return false;
+  }
+}
+
+if (!(await registerWithTrueForge())) {
+  const retry = setInterval(() => {
+    void registerWithTrueForge().then((ok) => {
+      if (ok) clearInterval(retry);
+    });
+  }, 15_000);
+  retry.unref();
 }
 
 app.listen({ port: config.port, host: config.host }).catch((err) => {
