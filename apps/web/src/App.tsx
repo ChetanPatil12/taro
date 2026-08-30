@@ -1,44 +1,150 @@
-import { Link, Route, Routes } from 'react-router-dom';
-import Home from './pages/Home.js';
-import NewJob from './pages/NewJob.js';
-import JobDashboard from './pages/JobDashboard.js';
-import { Meta } from './components/ui.js';
+import { useEffect, useState } from 'react';
+import { api } from './lib/api.js';
+import { useWallpaper } from './desktop/useWallpaper.js';
+import { DesktopIcons } from './desktop/DesktopIcons.js';
+import type { DesktopApp } from './desktop/DesktopIcons.js';
+import { JobsWidget } from './desktop/JobsWidget.js';
+import { MenuBar } from './desktop/MenuBar.js';
+import { StickyNote } from './desktop/StickyNote.js';
+import { Window } from './desktop/Window.js';
+import { useWindowManager, WindowManagerProvider } from './desktop/windowing.js';
+import { JobApprovalAlerts } from './windows/ApprovalAlerts.js';
+import { JobWindow } from './windows/JobWindow.js';
+import { NewJobWindow } from './windows/NewJobWindow.js';
+import { TerminalWindow } from './windows/TerminalWindow.js';
+import { WatchDemoWindow } from './windows/WatchDemoWindow.js';
 
-const today = new Date().toLocaleDateString('en-US', {
-  weekday: 'long',
-  year: 'numeric',
-  month: 'long',
-  day: 'numeric',
-});
+const REPO_URL = 'https://github.com/ChetanPatil12/taro';
+
+function Desktop() {
+  const wm = useWindowManager();
+  const wallpaper = useWallpaper();
+  const [live, setLive] = useState(true);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [loadingDemo, setLoadingDemo] = useState(false);
+
+  useEffect(() => {
+    const probe = () =>
+      fetch('/api/health')
+        .then((r) => setLive(r.ok))
+        .catch(() => setLive(false));
+    void probe();
+    const t = setInterval(probe, 10_000);
+    return () => clearInterval(t);
+  }, []);
+
+  async function loadRoofingDemo() {
+    if (loadingDemo) return;
+    setLoadingDemo(true);
+    try {
+      const { job_id } = await api.loadPreset();
+      setRefreshKey((k) => k + 1);
+      wm.openJob(job_id, 'Roofing Inspection & Repair Coordination');
+    } catch (e) {
+      alert(`Could not load the demo: ${(e as Error).message}`);
+    } finally {
+      setLoadingDemo(false);
+    }
+  }
+
+  const topWin = wm.windows.reduce((a, b) => (a && a.z > b.z ? a : b), wm.windows[0]);
+
+  const apps: DesktopApp[] = [
+    {
+      id: 'roofing-demo',
+      label: loadingDemo ? 'Loading…' : 'Roofing Demo',
+      icon: 'roofing-demo',
+      glyph: '🏠',
+      gradient: 'linear-gradient(160deg, #ff9f0a, #d94f04)',
+      onClick: loadRoofingDemo,
+    },
+    {
+      id: 'new-job',
+      label: 'New Job',
+      icon: 'new-job',
+      glyph: '＋',
+      gradient: 'linear-gradient(160deg, #34c759, #1a9a44)',
+      onClick: () => wm.openApp('new-job'),
+    },
+    {
+      id: 'watch-demo',
+      label: 'Watch Demo',
+      icon: 'watch-demo',
+      glyph: '▶',
+      gradient: 'linear-gradient(160deg, #5e5ce6, #3634a3)',
+      onClick: () => wm.openApp('watch-demo'),
+    },
+    {
+      id: 'github',
+      label: 'Source Code',
+      icon: 'github',
+      glyph: '⌥',
+      gradient: 'linear-gradient(160deg, #48484a, #1c1c1e)',
+      onClick: () => window.open(REPO_URL, '_blank', 'noopener'),
+    },
+  ];
+
+  return (
+    <div
+      className="desktop-bg relative h-full w-full overflow-hidden"
+      style={wallpaper ? { backgroundImage: `url('${wallpaper}')` } : undefined}
+    >
+      <MenuBar live={live} />
+      <JobsWidget refreshKey={refreshKey} />
+      <StickyNote />
+      <DesktopIcons apps={apps} />
+
+      {wm.windows.map((win) => {
+        const focused = topWin?.id === win.id;
+        switch (win.kind) {
+          case 'job':
+            return (
+              <Window key={win.id} win={win} focused={focused}>
+                <JobWindow jobId={win.jobId!} />
+              </Window>
+            );
+          case 'terminal':
+            return (
+              <Window
+                key={win.id}
+                win={{ ...win, title: `Agent Activity — ${win.title}` }}
+                focused={focused}
+                closable={false}
+                dark
+              >
+                <TerminalWindow jobId={win.jobId!} />
+              </Window>
+            );
+          case 'new-job':
+            return (
+              <Window key={win.id} win={win} focused={focused}>
+                <NewJobWindow onCreated={() => setRefreshKey((k) => k + 1)} />
+              </Window>
+            );
+          case 'watch-demo':
+            return (
+              <Window key={win.id} win={win} focused={focused}>
+                <WatchDemoWindow />
+              </Window>
+            );
+          default:
+            return null;
+        }
+      })}
+
+      {wm.windows
+        .filter((w) => w.kind === 'job')
+        .map((w) => (
+          <JobApprovalAlerts key={w.id} jobId={w.jobId!} />
+        ))}
+    </div>
+  );
+}
 
 export default function App() {
   return (
-    <div className="mx-auto max-w-screen-xl px-4 pb-16">
-      <header className="border-b-4 border-foreground">
-        <div className="flex items-baseline justify-between pt-6 pb-1">
-          <Meta>Vol. 1 — The Coordination Desk</Meta>
-          <Meta>{today}</Meta>
-        </div>
-        <div className="flex items-end justify-between pb-3">
-          <Link
-            to="/"
-            className="focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground"
-          >
-            <h1 className="font-serif text-6xl font-black leading-[0.9] tracking-tighter sm:text-7xl">
-              TARO
-            </h1>
-          </Link>
-          <p className="hidden pb-2 font-body text-sm italic text-neutral-600 sm:block">
-            Autonomous multi-party coordination, gated by humans.
-          </p>
-        </div>
-      </header>
-
-      <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/jobs/new" element={<NewJob />} />
-        <Route path="/jobs/:jobId" element={<JobDashboard />} />
-      </Routes>
-    </div>
+    <WindowManagerProvider>
+      <Desktop />
+    </WindowManagerProvider>
   );
 }
