@@ -10,6 +10,7 @@ const BADGE: Record<string, { label: string; cls: string }> = {
   planning: { label: 'DRAFT', cls: 'bg-[#616161] text-white' },
   completed: { label: 'DONE', cls: 'bg-[#9e9e9e] text-white' },
   failed: { label: 'FAIL', cls: 'bg-[#b3261e] text-white' },
+  cancelled: { label: 'CANC', cls: 'bg-[#8e8e93] text-white' },
 };
 
 /**

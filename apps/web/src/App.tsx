@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { api } from './lib/api.js';
+import { api, LOCKED_EVENT } from './lib/api.js';
+import { LockScreen } from './desktop/LockScreen.js';
 import { useWallpaper } from './desktop/useWallpaper.js';
 import { DesktopIcons } from './desktop/DesktopIcons.js';
 import type { DesktopApp } from './desktop/DesktopIcons.js';
@@ -11,6 +12,7 @@ import { useWindowManager, WindowManagerProvider } from './desktop/windowing.js'
 import { JobApprovalAlerts } from './windows/ApprovalAlerts.js';
 import { JobWindow } from './windows/JobWindow.js';
 import { NewJobWindow } from './windows/NewJobWindow.js';
+import { PresetWindow } from './windows/PresetWindow.js';
 import { TerminalWindow } from './windows/TerminalWindow.js';
 import { WatchDemoWindow } from './windows/WatchDemoWindow.js';
 
@@ -21,7 +23,17 @@ function Desktop() {
   const wallpaper = useWallpaper();
   const [live, setLive] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [loadingDemo, setLoadingDemo] = useState(false);
+  const [locked, setLocked] = useState(false);
+
+  useEffect(() => {
+    const onLocked = () => setLocked(true);
+    window.addEventListener(LOCKED_EVENT, onLocked);
+    api
+      .unlockStatus()
+      .then((s) => setLocked(s.required && !s.unlocked))
+      .catch(() => {});
+    return () => window.removeEventListener(LOCKED_EVENT, onLocked);
+  }, []);
 
   useEffect(() => {
     const probe = () =>
@@ -33,30 +45,16 @@ function Desktop() {
     return () => clearInterval(t);
   }, []);
 
-  async function loadRoofingDemo() {
-    if (loadingDemo) return;
-    setLoadingDemo(true);
-    try {
-      const { job_id } = await api.loadPreset();
-      setRefreshKey((k) => k + 1);
-      wm.openJob(job_id, 'Roofing Inspection & Repair Coordination');
-    } catch (e) {
-      alert(`Could not load the demo: ${(e as Error).message}`);
-    } finally {
-      setLoadingDemo(false);
-    }
-  }
-
   const topWin = wm.windows.reduce((a, b) => (a && a.z > b.z ? a : b), wm.windows[0]);
 
   const apps: DesktopApp[] = [
     {
       id: 'roofing-demo',
-      label: loadingDemo ? 'Loading…' : 'Roofing Demo',
+      label: 'Roofing Demo',
       icon: 'roofing-demo',
       glyph: '🏠',
       gradient: 'linear-gradient(160deg, #ff9f0a, #d94f04)',
-      onClick: loadRoofingDemo,
+      onClick: () => wm.openApp('preset'),
     },
     {
       id: 'new-job',
@@ -121,6 +119,12 @@ function Desktop() {
                 <NewJobWindow onCreated={() => setRefreshKey((k) => k + 1)} />
               </Window>
             );
+          case 'preset':
+            return (
+              <Window key={win.id} win={win} focused={focused}>
+                <PresetWindow onCreated={() => setRefreshKey((k) => k + 1)} />
+              </Window>
+            );
           case 'watch-demo':
             return (
               <Window key={win.id} win={win} focused={focused}>
@@ -137,6 +141,10 @@ function Desktop() {
         .map((w) => (
           <JobApprovalAlerts key={w.id} jobId={w.jobId!} />
         ))}
+
+      {locked && (
+        <LockScreen onUnlocked={() => setLocked(false)} onDismiss={() => setLocked(false)} />
+      )}
     </div>
   );
 }

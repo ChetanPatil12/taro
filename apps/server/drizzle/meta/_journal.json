@@ -15,6 +15,13 @@
       "when": 1788005748181,
       "tag": "0001_approvals_resumed",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1788062081325,
+      "tag": "0002_coordinator",
+      "breakpoints": true
     }
   ]
 }

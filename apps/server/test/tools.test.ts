@@ -210,6 +210,31 @@ describe('MCP tools', () => {
     expect(hub.ofType('plan_ready')).toHaveLength(1);
   });
 
+  it('save_execution_plan replaces the step DAG with plan items', () => {
+    tools.save_execution_plan({
+      job_id: jobId,
+      plan: [
+        {
+          step_title: 'Kickoff',
+          actions: 'Contact everyone',
+          parties: ['Sarah'],
+          decisions_needed: [],
+        },
+        {
+          step_title: 'Inspect',
+          actions: 'On-site visit',
+          parties: ['Bob'],
+          decisions_needed: ['date'],
+          depends_on: ['Kickoff'],
+        },
+      ],
+    });
+    const state = tools.get_job_state({ job_id: jobId });
+    expect(state.steps).toHaveLength(2); // the 2 seeded steps were replaced
+    expect(state.steps[1]?.dependsOn).toEqual(['Kickoff']);
+    expect(state.job.status).toBe('awaiting_approval');
+  });
+
   it('commit_decision records a decision log entry', () => {
     tools.commit_decision({
       job_id: jobId,

@@ -47,6 +47,7 @@ export const parties = sqliteTable(
     channel: text('channel').notNull().default('chat'),
     instructions: text('instructions').notNull().default(''),
     status: text('status').notNull().default('idle'),
+    isCoordinator: integer('is_coordinator').notNull().default(0),
   },
   (t) => [
     index('parties_job_idx').on(t.jobId),

@@ -20,6 +20,8 @@ export interface ServerConfig {
   artifactsDir: string;
   filesDir: string;
   mcpSharedSecret: string | undefined;
+  requireUnlock: boolean;
+  webDist: string | undefined;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -32,5 +34,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     artifactsDir: env.ARTIFACTS_DIR ?? './data/artifacts',
     filesDir: env.FILES_DIR ?? './data/files',
     mcpSharedSecret: env.MCP_SHARED_SECRET || undefined,
+    requireUnlock: env.REQUIRE_UNLOCK === 'true' || env.REQUIRE_UNLOCK === '1',
+    webDist: env.WEB_DIST || undefined,
   };
 }

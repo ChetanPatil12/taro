@@ -115,7 +115,7 @@ export function buildMcpServer(tools: TaroTools): McpServer {
 
   register(
     'save_execution_plan',
-    'Persist the generated execution plan for user review. Sets the job to awaiting_approval. One entry per step: what you will do, with which parties, and what decisions you need.',
+    'Persist the generated execution plan for user review; sets the job to awaiting_approval. THE PLAN DEFINES THE STEP DAG: existing steps are replaced, one step per item, in order. Per item: what you will do, with which parties, decisions you need, and depends_on (step_titles of prerequisite items).',
     {
       job_id: z.string(),
       plan: z.array(
@@ -124,6 +124,7 @@ export function buildMcpServer(tools: TaroTools): McpServer {
           actions: z.string(),
           parties: z.array(z.string()),
           decisions_needed: z.array(z.string()),
+          depends_on: z.array(z.string()).optional(),
         }),
       ),
     },

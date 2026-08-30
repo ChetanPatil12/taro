@@ -1,0 +1,1 @@
+ALTER TABLE `parties` ADD `is_coordinator` integer DEFAULT 0 NOT NULL;

@@ -15,6 +15,9 @@ const app = await buildApp({
   filesDir: config.filesDir,
   logger: true,
   mcpSharedSecret: config.mcpSharedSecret,
+  requireUnlock: config.requireUnlock,
+  trueforgeUrl: config.trueforgeUrl,
+  webDist: config.webDist,
   makeDriver: (hub) => new JobDriver(db, hub, client, config.trueforgeUrl, config.artifactsDir),
 });
 

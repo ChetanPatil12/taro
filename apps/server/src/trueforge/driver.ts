@@ -66,6 +66,28 @@ export class JobDriver {
     ]);
   }
 
+  /** User declined the draft plan with feedback → agent redrafts. */
+  requestPlanRevision(jobId: string, feedback: string): void {
+    this.db.update(schema.jobs).set({ status: 'planning' }).where(eq(schema.jobs.id, jobId)).run();
+    this.hub.broadcast({ event: 'job_status', jobId, status: 'planning' });
+    this.enqueue(jobId, [
+      {
+        type: 'user.message',
+        content:
+          `PLAN_REVISION job_id=${jobId}\n` +
+          `The user did NOT approve the draft plan and gave this feedback:\n"${feedback}"\n` +
+          `Revise the execution plan accordingly and call save_execution_plan again. ` +
+          `Do not contact any party.`,
+      },
+    ]);
+  }
+
+  /** User rejected the draft outright → job is cancelled, agent not resumed. */
+  rejectPlan(jobId: string): void {
+    this.db.update(schema.jobs).set({ status: 'cancelled' }).where(eq(schema.jobs.id, jobId)).run();
+    this.hub.broadcast({ event: 'job_status', jobId, status: 'cancelled' });
+  }
+
   /** A party (human in the UI) sent a message, optionally with a file. */
   notifyPartyMessage(
     jobId: string,

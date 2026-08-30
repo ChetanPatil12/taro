@@ -8,50 +8,57 @@ interface PartyRow {
   role: string;
   instructions: string;
 }
-interface StepRow {
-  title: string;
-  description: string;
-  requiredParties: string[];
-  dependsOn: string[];
-  conditions: string;
-}
 
 const input =
   'w-full rounded-md border border-[#d2d2d7] bg-white px-2.5 py-1.5 text-[12px] outline-none focus:border-[#0071e3]';
 const label = 'text-[11px] font-bold uppercase tracking-wide text-[#6e6e73]';
 
+/**
+ * Job intake: a coordinator (mandatory approval authority), the other
+ * parties, and one freeform brief. No step editor — the agent derives the
+ * step DAG from the brief, and the user iterates on the drafted plan.
+ */
 export function NewJobWindow({ onCreated }: { onCreated: () => void }) {
   const wm = useWindowManager();
   const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
+  const [brief, setBrief] = useState('');
+  const [coordinator, setCoordinator] = useState<PartyRow>({
+    name: '',
+    role: '',
+    instructions: '',
+  });
   const [parties, setParties] = useState<PartyRow[]>([{ name: '', role: '', instructions: '' }]);
-  const [steps, setSteps] = useState<StepRow[]>([
-    { title: '', description: '', requiredParties: [], dependsOn: [], conditions: '' },
-  ]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const patchParty = (i: number, p: Partial<PartyRow>) =>
     setParties((rows) => rows.map((r, j) => (j === i ? { ...r, ...p } : r)));
-  const patchStep = (i: number, p: Partial<StepRow>) =>
-    setSteps((rows) => rows.map((r, j) => (j === i ? { ...r, ...p } : r)));
-  const toggle = (list: string[], v: string) =>
-    list.includes(v) ? list.filter((x) => x !== v) : [...list, v];
 
-  const partyNames = parties.map((p) => p.name).filter(Boolean);
+  const ready = title.trim() && brief.trim() && coordinator.name.trim();
 
   async function submit() {
     setBusy(true);
     setError(null);
     const def: JobDefinition = {
       title,
-      description,
-      parties: parties
-        .filter((p) => p.name.trim())
-        .map((p) => ({ ...p, channel: 'chat', role: p.role || 'participant' })),
-      steps: steps
-        .filter((s) => s.title.trim())
-        .map((s) => ({ ...s, description: s.description || s.title })),
+      description: brief,
+      parties: [
+        {
+          name: coordinator.name,
+          role: coordinator.role || 'coordinator',
+          channel: 'chat',
+          instructions: coordinator.instructions,
+          isCoordinator: true,
+        },
+        ...parties
+          .filter((p) => p.name.trim())
+          .map((p) => ({
+            ...p,
+            channel: 'chat',
+            role: p.role || 'participant',
+            isCoordinator: false,
+          })),
+      ],
     };
     try {
       const { job_id } = await api.createJob(def);
@@ -75,16 +82,56 @@ export function NewJobWindow({ onCreated }: { onCreated: () => void }) {
             value={title}
             onChange={(e) => setTitle(e.target.value)}
           />
+        </div>
+
+        <div className="space-y-1.5">
+          <p className={label}>The brief — just dump your thoughts</p>
           <textarea
-            className={`${input} min-h-16 resize-y`}
-            placeholder="Description — context, constraints, budget, target dates. The agent reads this verbatim."
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
+            className={`${input} min-h-32 resize-y`}
+            placeholder={
+              'Everything the agent should know, in your own words: what needs to happen, ' +
+              'who does what, budgets, deadlines, constraints, quirks of the people involved… ' +
+              'The agent turns this into a step-by-step plan you can revise before anything starts.'
+            }
+            value={brief}
+            onChange={(e) => setBrief(e.target.value)}
           />
         </div>
 
+        <div className="space-y-1.5">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-[#5e5ce6]">
+            Coordinator — required
+          </p>
+          <div className="space-y-1.5 rounded-lg border-2 border-[#5e5ce6] bg-[#5e5ce6]/10 p-2.5">
+            <p className="text-[11px] leading-snug text-[#3d3c8f]">
+              The human authority for this job. Every binding action the agent wants to take is
+              routed to them for approval — without a coordinator the job cannot be drafted.
+            </p>
+            <div className="flex gap-2">
+              <input
+                className={input}
+                placeholder="Name"
+                value={coordinator.name}
+                onChange={(e) => setCoordinator((c) => ({ ...c, name: e.target.value }))}
+              />
+              <input
+                className={input}
+                placeholder="Role in this job (e.g. project manager)"
+                value={coordinator.role}
+                onChange={(e) => setCoordinator((c) => ({ ...c, role: e.target.value }))}
+              />
+            </div>
+            <textarea
+              className={`${input} min-h-12 resize-y`}
+              placeholder="Their part in this job — what they own, when they must be consulted…"
+              value={coordinator.instructions}
+              onChange={(e) => setCoordinator((c) => ({ ...c, instructions: e.target.value }))}
+            />
+          </div>
+        </div>
+
         <div className="space-y-2">
-          <p className={label}>Parties</p>
+          <p className={label}>Other parties</p>
           {parties.map((p, i) => (
             <div
               key={i}
@@ -113,7 +160,7 @@ export function NewJobWindow({ onCreated }: { onCreated: () => void }) {
               </div>
               <textarea
                 className={`${input} min-h-12 resize-y`}
-                placeholder="Instructions — availability, constraints, what they must approve…"
+                placeholder="Availability, constraints, what they must approve…"
                 value={p.instructions}
                 onChange={(e) => patchParty(i, { instructions: e.target.value })}
               />
@@ -126,80 +173,21 @@ export function NewJobWindow({ onCreated }: { onCreated: () => void }) {
             + Add party
           </button>
         </div>
-
-        <div className="space-y-2">
-          <p className={label}>Steps</p>
-          {steps.map((s, i) => (
-            <div
-              key={i}
-              className="space-y-1.5 rounded-lg border border-black/10 bg-white/70 p-2.5"
-            >
-              <div className="flex gap-2">
-                <input
-                  className={input}
-                  placeholder="Step title"
-                  value={s.title}
-                  onChange={(e) => patchStep(i, { title: e.target.value })}
-                />
-                <button
-                  aria-label="Remove step"
-                  className="flex-none rounded-md px-2 text-[13px] text-[#6e6e73] hover:bg-black/5"
-                  onClick={() => setSteps((rows) => rows.filter((_, j) => j !== i))}
-                >
-                  ✕
-                </button>
-              </div>
-              <textarea
-                className={`${input} min-h-12 resize-y`}
-                placeholder="What must happen; conditions"
-                value={s.description}
-                onChange={(e) => patchStep(i, { description: e.target.value })}
-              />
-              {partyNames.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {partyNames.map((name) => (
-                    <button
-                      key={name}
-                      onClick={() =>
-                        patchStep(i, { requiredParties: toggle(s.requiredParties, name) })
-                      }
-                      className={`rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${
-                        s.requiredParties.includes(name)
-                          ? 'border-[#0071e3] bg-[#0071e3] text-white'
-                          : 'border-[#d2d2d7] text-[#3a3a3c] hover:border-[#0071e3]'
-                      }`}
-                    >
-                      {name}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-          <button
-            className="text-[12px] font-semibold text-[#0071e3]"
-            onClick={() =>
-              setSteps((s) => [
-                ...s,
-                { title: '', description: '', requiredParties: [], dependsOn: [], conditions: '' },
-              ])
-            }
-          >
-            + Add step
-          </button>
-        </div>
         {error && <p className="text-[12px] text-[#ff3b30]">{error}</p>}
       </div>
       <div className="flex-none border-t border-black/10 p-3">
         <button
-          disabled={
-            busy || !title.trim() || partyNames.length === 0 || steps.every((s) => !s.title.trim())
-          }
+          disabled={busy || !ready}
           onClick={submit}
           className="h-9 w-full rounded-lg bg-[#0071e3] text-[13px] font-semibold text-white hover:bg-[#0077ed] disabled:opacity-40"
         >
-          {busy ? 'Filing…' : 'Create Job & Generate Plan'}
+          {busy ? 'Filing…' : 'Create Job & Draft the Plan'}
         </button>
+        {!coordinator.name.trim() && (
+          <p className="mt-1.5 text-center text-[10.5px] text-[#5e5ce6]">
+            A coordinator is required before the plan can be drafted.
+          </p>
+        )}
       </div>
     </div>
   );

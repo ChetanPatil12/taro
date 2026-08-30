@@ -194,6 +194,9 @@ export function JobWindow({ jobId }: { jobId: string }) {
   const wm = useWindowManager();
   const [activePartyId, setActivePartyId] = useState<string | null>(null);
   const [approving, setApproving] = useState(false);
+  const [revising, setRevising] = useState(false);
+  const [feedback, setFeedback] = useState('');
+  const [planError, setPlanError] = useState<string | null>(null);
 
   const title = state?.job.title;
   useEffect(() => {
@@ -205,6 +208,18 @@ export function JobWindow({ jobId }: { jobId: string }) {
   }
   const { job, parties, steps, log, open_conflicts, artifacts } = state;
   const party = parties.find((p) => p.id === activePartyId) ?? parties[0];
+
+  if (job.status === 'cancelled') {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
+        <span className="text-3xl">🗑️</span>
+        <p className="text-[14px] font-semibold">Draft rejected — job cancelled</p>
+        <p className="max-w-[40ch] text-[12px] text-[#6e6e73]">
+          The agent never contacted any party. Close this window, or start a fresh job.
+        </p>
+      </div>
+    );
+  }
 
   if (job.status === 'planning') {
     return (
@@ -244,21 +259,87 @@ export function JobWindow({ jobId }: { jobId: string }) {
             ))}
           </ol>
         </div>
-        <div className="flex-none border-t border-black/10 p-3">
-          <button
-            disabled={approving}
-            onClick={async () => {
-              setApproving(true);
-              try {
-                await api.approvePlan(jobId);
-              } finally {
-                setApproving(false);
-              }
-            }}
-            className="h-10 w-full rounded-lg bg-[#0071e3] text-[13px] font-semibold text-white hover:bg-[#0077ed] disabled:opacity-40"
-          >
-            {approving ? 'Starting agent…' : 'Approve Plan & Start Agent'}
-          </button>
+        <div className="flex-none space-y-2 border-t border-black/10 p-3">
+          {revising && (
+            <textarea
+              autoFocus
+              className="min-h-14 w-full resize-y rounded-md border border-[#d2d2d7] bg-white px-2.5 py-1.5 text-[12px] outline-none focus:border-[#0071e3]"
+              placeholder="What should change? e.g. 'Add a permit check before the inspection; keep the budget under $15k.'"
+              value={feedback}
+              onChange={(e) => setFeedback(e.target.value)}
+            />
+          )}
+          {planError && <p className="text-[11px] text-[#ff3b30]">{planError}</p>}
+          <div className="flex gap-2">
+            {!revising ? (
+              <>
+                <button
+                  disabled={approving}
+                  onClick={async () => {
+                    if (!confirm('Reject this draft and cancel the job?')) return;
+                    setPlanError(null);
+                    try {
+                      await api.rejectPlan(jobId);
+                    } catch (e) {
+                      setPlanError((e as Error).message);
+                    }
+                  }}
+                  className="h-10 flex-none rounded-lg border border-[#d2d2d7] bg-white px-4 text-[13px] font-semibold text-[#b3261e] hover:bg-[#fff0ef] disabled:opacity-40"
+                >
+                  Reject Draft
+                </button>
+                <button
+                  disabled={approving}
+                  onClick={() => setRevising(true)}
+                  className="h-10 flex-1 rounded-lg border border-[#d2d2d7] bg-white text-[13px] font-semibold hover:bg-[#f0f0f2] disabled:opacity-40"
+                >
+                  Request Changes…
+                </button>
+                <button
+                  disabled={approving}
+                  onClick={async () => {
+                    setApproving(true);
+                    setPlanError(null);
+                    try {
+                      await api.approvePlan(jobId);
+                    } catch (e) {
+                      setPlanError((e as Error).message);
+                    } finally {
+                      setApproving(false);
+                    }
+                  }}
+                  className="h-10 flex-1 rounded-lg bg-[#0071e3] text-[13px] font-semibold text-white hover:bg-[#0077ed] disabled:opacity-40"
+                >
+                  {approving ? 'Starting agent…' : 'Approve & Start Agent'}
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => setRevising(false)}
+                  className="h-10 flex-none rounded-lg border border-[#d2d2d7] bg-white px-4 text-[13px] font-semibold hover:bg-[#f0f0f2]"
+                >
+                  Back
+                </button>
+                <button
+                  disabled={!feedback.trim()}
+                  onClick={async () => {
+                    setPlanError(null);
+                    try {
+                      await api.planFeedback(jobId, feedback.trim());
+                      setRevising(false);
+                      setFeedback('');
+                    } catch (e) {
+                      setPlanError((e as Error).message);
+                    }
+                  }}
+                  className="h-10 flex-1 rounded-lg bg-[#0071e3] text-[13px] font-semibold text-white hover:bg-[#0077ed] disabled:opacity-40"
+                >
+                  Send Feedback & Redraft
+                </button>
+              </>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -332,12 +413,18 @@ export function JobWindow({ jobId }: { jobId: string }) {
             <button
               key={p.id}
               onClick={() => setActivePartyId(p.id)}
-              className={`rounded-t-lg px-3 py-1.5 text-[12px] font-semibold ${
+              className={`flex items-center gap-1.5 rounded-t-lg px-3 py-1.5 text-[12px] font-semibold ${
                 p.id === party?.id
                   ? 'bg-white text-[#1d1d1f] shadow-[0_-1px_0_rgba(0,0,0,0.08)_inset]'
                   : 'text-[#6e6e73] hover:bg-white/60'
               }`}
             >
+              {p.isCoordinator ? (
+                <span
+                  title="Coordinator — approval authority"
+                  className="h-2 w-2 rounded-full bg-[#5e5ce6]"
+                />
+              ) : null}
               {p.name}
             </button>
           ))}

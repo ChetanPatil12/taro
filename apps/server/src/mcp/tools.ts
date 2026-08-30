@@ -401,22 +401,42 @@ export function createTools(db: TaroDb, hub: WsHub) {
         actions: string;
         parties: string[];
         decisions_needed: string[];
+        depends_on?: string[];
       }>;
     }) {
       requireJob(args.job_id);
+      if (args.plan.length === 0) throw new Error('plan must contain at least one item');
       const plan = args.plan.map((p) => ({
         stepTitle: p.step_title,
         actions: p.actions,
         parties: p.parties,
         decisionsNeeded: p.decisions_needed,
+        dependsOn: p.depends_on ?? [],
       }));
+
+      // The plan DEFINES the job's step DAG: replace steps with plan items.
+      db.delete(schema.steps).where(eq(schema.steps.jobId, args.job_id)).run();
+      plan.forEach((item, i) => {
+        db.insert(schema.steps)
+          .values({
+            id: randomUUID(),
+            jobId: args.job_id,
+            sequenceNum: i + 1,
+            title: item.stepTitle,
+            description: item.actions,
+            requiredParties: item.parties,
+            dependsOn: item.dependsOn,
+          })
+          .run();
+      });
+
       db.update(schema.jobs)
         .set({ executionPlan: plan, status: 'awaiting_approval' })
         .where(eq(schema.jobs.id, args.job_id))
         .run();
       hub.broadcast({ event: 'plan_ready', jobId: args.job_id, executionPlan: plan });
       hub.broadcast({ event: 'job_status', jobId: args.job_id, status: 'awaiting_approval' });
-      return { saved: true, steps_planned: plan.length };
+      return { saved: true, steps_defined: plan.length };
     },
 
     /**

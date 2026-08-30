@@ -41,13 +41,44 @@ export interface ArtifactItem {
   createdAt: string;
 }
 
+const TOKEN_KEY = 'taro-unlock-token';
+
+export function getUnlockToken(): string | null {
+  try {
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setUnlockToken(token: string): void {
+  try {
+    localStorage.setItem(TOKEN_KEY, token);
+  } catch {
+    /* private mode — session-only unlock */
+  }
+}
+
+/** Fired when a write is rejected because the demo is locked. */
+export const LOCKED_EVENT = 'taro-locked';
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
+  // Only claim a JSON body when there is one — Fastify 400s on an empty
+  // body paired with a JSON content-type.
+  const token = getUnlockToken();
   const res = await fetch(url, {
-    headers: { 'content-type': 'application/json' },
     ...init,
+    headers: {
+      ...(init?.body ? { 'content-type': 'application/json' } : {}),
+      ...(token ? { 'x-taro-token': token } : {}),
+    },
   });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
+    if (res.status === 401 && body.error === 'locked') {
+      window.dispatchEvent(new CustomEvent(LOCKED_EVENT));
+      throw new Error('Unlock with your OpenAI API key to interact with the demo.');
+    }
     throw new Error(body.error ?? `HTTP ${res.status}`);
   }
   return res.json() as Promise<T>;
@@ -81,6 +112,24 @@ export const api = {
     request<{ status: string }>(`/api/jobs/${jobId}/approvals/${approvalId}`, {
       method: 'POST',
       body: JSON.stringify({ decision, reason }),
+    }),
+  getRoofingPreset: () =>
+    request<{
+      definition: JobDefinition;
+      seeded_conflict: { party: string; job_title: string; note: string };
+    }>('/api/presets/roofing'),
+  planFeedback: (jobId: string, feedback: string) =>
+    request<{ status: string }>(`/api/jobs/${jobId}/plan-feedback`, {
+      method: 'POST',
+      body: JSON.stringify({ feedback }),
+    }),
+  rejectPlan: (jobId: string) =>
+    request<{ status: string }>(`/api/jobs/${jobId}/reject-plan`, { method: 'POST' }),
+  unlockStatus: () => request<{ required: boolean; unlocked: boolean }>('/api/unlock/status'),
+  unlock: (apiKey: string) =>
+    request<{ token: string }>('/api/unlock', {
+      method: 'POST',
+      body: JSON.stringify({ api_key: apiKey }),
     }),
   listArtifacts: (jobId: string) =>
     request<{ artifacts: ArtifactItem[] }>(`/api/jobs/${jobId}/artifacts`),

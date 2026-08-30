@@ -6,10 +6,12 @@ import { useJob } from '../lib/jobStore.js';
 function Alert({
   jobId,
   jobTitle,
+  coordinatorName,
   approval,
 }: {
   jobId: string;
   jobTitle: string;
+  coordinatorName: string | null;
   approval: Approval;
 }) {
   const [rejecting, setRejecting] = useState(false);
@@ -43,7 +45,14 @@ function Alert({
         </h3>
         <p className="mt-1 text-[12px] leading-relaxed text-[#6e6e73]">{approval.description}</p>
         <p className="mt-1 text-[11px] text-[#98989d]">
-          {jobTitle} · agent paused until you decide
+          {jobTitle} · agent paused —{' '}
+          {coordinatorName ? (
+            <span className="font-semibold text-[#5e5ce6]">
+              awaiting {coordinatorName}'s decision
+            </span>
+          ) : (
+            'awaiting your decision'
+          )}
         </p>
         {approval.payload && (
           <pre className="mono mt-3 max-h-28 overflow-auto rounded-lg border border-black/10 bg-white p-2 text-left text-[10.5px] text-[#3a3a3c]">
@@ -114,7 +123,12 @@ export function JobApprovalAlerts({ jobId }: { jobId: string }) {
           className="absolute left-1/2 z-[950]"
           style={{ top: 120 + i * 40, transform: `translateX(calc(-50% + ${i * 28}px))` }}
         >
-          <Alert jobId={jobId} jobTitle={state.job.title} approval={a} />
+          <Alert
+            jobId={jobId}
+            jobTitle={state.job.title}
+            coordinatorName={state.parties.find((p) => p.isCoordinator)?.name ?? null}
+            approval={a}
+          />
         </div>
       ))}
     </>

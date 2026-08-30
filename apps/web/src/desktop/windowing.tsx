@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useMemo, useReducer } from 'react';
 import type { ReactNode } from 'react';
 
-export type WindowKind = 'job' | 'terminal' | 'new-job' | 'watch-demo';
+export type WindowKind = 'job' | 'terminal' | 'new-job' | 'watch-demo' | 'preset';
 
 export interface Win {
   /** 'job:<id>' | 'terminal:<id>' | 'new-job' | 'watch-demo' */
@@ -17,6 +17,7 @@ export interface Win {
 }
 
 export const DEFAULT_SIZE: Record<WindowKind, { w: number; h: number }> = {
+  preset: { w: 640, h: 560 },
   job: { w: 780, h: 520 },
   terminal: { w: 560, h: 200 },
   'new-job': { w: 560, h: 560 },
@@ -24,6 +25,7 @@ export const DEFAULT_SIZE: Record<WindowKind, { w: number; h: number }> = {
 };
 
 export const MIN_SIZE: Record<WindowKind, { w: number; h: number }> = {
+  preset: { w: 460, h: 380 },
   job: { w: 560, h: 380 },
   terminal: { w: 380, h: 140 },
   'new-job': { w: 420, h: 380 },
@@ -116,7 +118,7 @@ interface WindowManager {
   windows: Win[];
   topZ: number;
   openJob: (jobId: string, title: string) => void;
-  openApp: (kind: 'new-job' | 'watch-demo') => void;
+  openApp: (kind: 'new-job' | 'watch-demo' | 'preset') => void;
   close: (id: string) => void;
   focus: (id: string) => void;
   move: (id: string, x: number, y: number) => void;
@@ -140,12 +142,10 @@ export function WindowManagerProvider({ children }: { children: ReactNode }) {
     const { x, y } = nextPos({ x: 320, y: 60 });
     dispatch({ type: 'open', win: { id: `job:${jobId}`, kind: 'job', jobId, title, x, y } });
   }, []);
-  const openApp = useCallback((kind: 'new-job' | 'watch-demo') => {
+  const openApp = useCallback((kind: 'new-job' | 'watch-demo' | 'preset') => {
     const { x, y } = nextPos({ x: 380, y: 90 });
-    dispatch({
-      type: 'open',
-      win: { id: kind, kind, title: kind === 'new-job' ? 'New Job' : 'Watch Demo', x, y },
-    });
+    const titles = { 'new-job': 'New Job', 'watch-demo': 'Watch Demo', preset: 'Roofing Demo' };
+    dispatch({ type: 'open', win: { id: kind, kind, title: titles[kind], x, y } });
   }, []);
 
   const value = useMemo<WindowManager>(
