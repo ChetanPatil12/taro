@@ -1,0 +1,1 @@
+ALTER TABLE `approvals` ADD `resumed` integer DEFAULT 0 NOT NULL;

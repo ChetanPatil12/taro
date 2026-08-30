@@ -1,0 +1,1 @@
+ALTER TABLE `jobs` ADD `planner_session_id` text;

@@ -12,14 +12,31 @@ dotenv.config({ path: [resolve(here, '../.env'), resolve(here, '../../../.env')]
 
 export interface ServerConfig {
   port: number;
+  /** Bind address. Defaults to loopback; set HOST=0.0.0.0 only behind a proxy. */
+  host: string;
   databasePath: string;
   trueforgeUrl: string;
+  orchestratorModel: string;
+  plannerModel: string;
+  artifactsDir: string;
+  filesDir: string;
+  mcpSharedSecret: string | undefined;
+  requireUnlock: boolean;
+  webDist: string | undefined;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   return {
     port: Number(env.PORT ?? 8000),
+    host: env.HOST ?? '127.0.0.1',
     databasePath: env.DATABASE_PATH ?? './data/taro.db',
     trueforgeUrl: env.TRUEFORGE_URL ?? 'http://localhost:8790',
+    orchestratorModel: env.ORCHESTRATOR_MODEL ?? 'openai/gpt-5-mini',
+    plannerModel: env.PLANNER_MODEL ?? 'openai/gpt-5-1',
+    artifactsDir: env.ARTIFACTS_DIR ?? './data/artifacts',
+    filesDir: env.FILES_DIR ?? './data/files',
+    mcpSharedSecret: env.MCP_SHARED_SECRET || undefined,
+    requireUnlock: env.REQUIRE_UNLOCK === 'true' || env.REQUIRE_UNLOCK === '1',
+    webDist: env.WEB_DIST || undefined,
   };
 }
