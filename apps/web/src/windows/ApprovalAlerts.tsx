@@ -54,6 +54,42 @@ function Alert({
             'awaiting your decision'
           )}
         </p>
+        {(() => {
+          const payload = approval.payload as {
+            artifacts?: Array<{ id?: string; name?: string }>;
+            artifact_ids?: string[];
+          } | null;
+          const files = (
+            payload?.artifacts ??
+            payload?.artifact_ids?.map((id) => ({ id, name: undefined })) ??
+            []
+          ).filter((f) => f.id);
+          if (files.length === 0) return null;
+          return (
+            <div className="mt-3 space-y-1.5">
+              <p className="text-left text-[10px] font-bold uppercase tracking-wide text-[#6e6e73]">
+                Review before approving
+              </p>
+              {files.map((f) => (
+                <a
+                  key={f.id}
+                  href={`/api/artifacts/${f.id}/download`}
+                  className="flex items-center gap-2 rounded-lg border border-black/15 bg-white px-2.5 py-2 text-left no-underline hover:bg-neutral-50"
+                >
+                  <span className="flex h-8 w-8 flex-none items-center justify-center rounded-md bg-[#e2574c] text-[14px] text-white">
+                    📄
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block truncate text-[12px] font-semibold text-[#111]">
+                      {f.name ?? 'document'}
+                    </span>
+                    <span className="block text-[10px] text-black/50">Open to review</span>
+                  </span>
+                </a>
+              ))}
+            </div>
+          );
+        })()}
         {approval.payload && (
           <pre className="mono mt-3 max-h-28 overflow-auto rounded-lg border border-black/10 bg-white p-2 text-left text-[10.5px] text-[#3a3a3c]">
             {JSON.stringify(approval.payload, null, 2)}

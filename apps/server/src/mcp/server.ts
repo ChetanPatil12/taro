@@ -47,7 +47,7 @@ export function buildMcpServer(tools: TaroTools): McpServer {
 
   register(
     'post_party_message',
-    "Record and deliver a message on a party's channel. direction='outbound' for messages TO the party (this sends it to their chat), 'inbound' when relaying something they said.",
+    "Record and deliver a message on a party's channel. direction='outbound' for messages TO the party (this sends it to their chat), 'inbound' when relaying something they said. Pass artifact_id (from store_artifact) to attach a document — it renders as a file card in the chat.",
     {
       job_id: z.string(),
       party_id: z.string(),
@@ -55,6 +55,7 @@ export function buildMcpServer(tools: TaroTools): McpServer {
       message: z.string(),
       message_type: z.enum(MESSAGE_TYPES).optional(),
       metadata: z.record(z.string(), z.unknown()).optional(),
+      artifact_id: z.string().optional(),
     },
     tools.post_party_message,
   );

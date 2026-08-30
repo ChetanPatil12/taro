@@ -2,10 +2,13 @@ import { useEffect, useRef } from 'react';
 import { useJob } from '../lib/jobStore.js';
 
 const KIND_STYLE: Record<string, { glyph: string; cls: string }> = {
+  turn: { glyph: '▶', cls: 'text-[#e4e4e7] font-semibold' },
   thread_started: { glyph: '▸', cls: 'text-[#60a5fa]' },
   thread_done: { glyph: '✓', cls: 'text-[#4ade80]' },
   sandbox: { glyph: '⌁', cls: 'text-[#c084fc]' },
-  tool_call: { glyph: '·', cls: 'text-[#a1a1aa]' },
+  tool_call: { glyph: '⚙', cls: 'text-[#67e8f9]' },
+  mcp: { glyph: '⛁', cls: 'text-[#fbbf24]' },
+  gate: { glyph: '⏸', cls: 'text-[#f87171] font-semibold' },
   status: { glyph: '»', cls: 'text-[#fbbf24]' },
 };
 

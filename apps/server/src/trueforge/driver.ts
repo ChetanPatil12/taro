@@ -6,13 +6,27 @@ import type { TrueForge } from '@truefoundry/trueforge-sdk';
 import type { TaroDb } from '../db/index.js';
 import { schema } from '../db/index.js';
 import type { WsHub } from '../ws/hub.js';
-import { ORCHESTRATOR_AGENT_NAME } from './orchestrator.js';
+import { ORCHESTRATOR_AGENT_NAME, PLANNER_AGENT_NAME } from './orchestrator.js';
 
 /** One item of turn input, in TrueForge wire shape. */
 type TurnInputItem = Record<string, unknown>;
 
+/** Models don't know the date; every event carries it so "tomorrow" works. */
+function dateStamp(): string {
+  const now = new Date();
+  const weekday = now.toLocaleDateString('en-US', { weekday: 'long' });
+  return `today=${now.toISOString().slice(0, 10)} (${weekday})`;
+}
+
+type SessionKind = 'planner' | 'main';
+
+interface QueuedTurn {
+  input: TurnInputItem[];
+  session: SessionKind;
+}
+
 interface JobRuntime {
-  queue: TurnInputItem[][];
+  queue: QueuedTurn[];
   running: boolean;
 }
 
@@ -35,33 +49,55 @@ export class JobDriver {
     private readonly artifactsDir: string,
   ) {}
 
-  /** Create the TrueForge session for a new job and request the plan. */
-  async startJob(jobId: string): Promise<void> {
+  private async createSession(agentName: string): Promise<string> {
     const created = (await this.client.sessions.create({
-      agent: { name: ORCHESTRATOR_AGENT_NAME },
+      agent: { name: agentName },
     })) as unknown as { data?: { id: string }; id?: string };
-    const session = created.data ?? { id: created.id! };
-    this.db
-      .update(schema.jobs)
-      .set({ trueforgeSessionId: session.id })
-      .where(eq(schema.jobs.id, jobId))
-      .run();
-    this.enqueue(jobId, [
-      {
-        type: 'user.message',
-        content: `PLAN_REQUEST job_id=${jobId}\nGenerate the execution plan per your contract.`,
-      },
-    ]);
+    return (created.data ?? { id: created.id! }).id;
   }
 
-  /** User approved the plan → kickoff burst. */
-  approvePlan(jobId: string): void {
+  /**
+   * A new job starts on the PLANNER session (strong model). The coordination
+   * session (cheap model) is created lazily at plan approval — all context
+   * crosses the boundary through SQLite, not session memory.
+   */
+  async startJob(jobId: string): Promise<void> {
+    const sessionId = await this.createSession(PLANNER_AGENT_NAME);
+    this.db
+      .update(schema.jobs)
+      .set({ plannerSessionId: sessionId })
+      .where(eq(schema.jobs.id, jobId))
+      .run();
+    this.enqueue(
+      jobId,
+      [
+        {
+          type: 'user.message',
+          content: `PLAN_REQUEST job_id=${jobId} ${dateStamp()}\nGenerate the execution plan per your contract.`,
+        },
+      ],
+      'planner',
+    );
+  }
+
+  /** User approved the plan → coordination session (cheap model) kicks off. */
+  async approvePlan(jobId: string): Promise<void> {
+    const job = this.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId)).get();
+    if (!job) throw new Error(`Unknown job ${jobId}`);
+    if (!job.trueforgeSessionId) {
+      const sessionId = await this.createSession(ORCHESTRATOR_AGENT_NAME);
+      this.db
+        .update(schema.jobs)
+        .set({ trueforgeSessionId: sessionId })
+        .where(eq(schema.jobs.id, jobId))
+        .run();
+    }
     this.db.update(schema.jobs).set({ status: 'active' }).where(eq(schema.jobs.id, jobId)).run();
     this.hub.broadcast({ event: 'job_status', jobId, status: 'active' });
     this.enqueue(jobId, [
       {
         type: 'user.message',
-        content: `PLAN_APPROVED job_id=${jobId}\nThe user approved the execution plan. Begin coordination per your contract.`,
+        content: `PLAN_APPROVED job_id=${jobId} ${dateStamp()}\nThe user approved the execution plan. Read the full state via get_job_state and begin coordination per your contract.`,
       },
     ]);
   }
@@ -70,16 +106,20 @@ export class JobDriver {
   requestPlanRevision(jobId: string, feedback: string): void {
     this.db.update(schema.jobs).set({ status: 'planning' }).where(eq(schema.jobs.id, jobId)).run();
     this.hub.broadcast({ event: 'job_status', jobId, status: 'planning' });
-    this.enqueue(jobId, [
-      {
-        type: 'user.message',
-        content:
-          `PLAN_REVISION job_id=${jobId}\n` +
-          `The user did NOT approve the draft plan and gave this feedback:\n"${feedback}"\n` +
-          `Revise the execution plan accordingly and call save_execution_plan again. ` +
-          `Do not contact any party.`,
-      },
-    ]);
+    this.enqueue(
+      jobId,
+      [
+        {
+          type: 'user.message',
+          content:
+            `PLAN_REVISION job_id=${jobId} ${dateStamp()}\n` +
+            `The user did NOT approve the draft plan and gave this feedback:\n"${feedback}"\n` +
+            `Revise the execution plan accordingly and call save_execution_plan again. ` +
+            `Do not contact any party.`,
+        },
+      ],
+      'planner',
+    );
   }
 
   /** User rejected the draft outright → job is cancelled, agent not resumed. */
@@ -99,7 +139,7 @@ export class JobDriver {
     const content: unknown[] = [
       {
         type: 'text',
-        text: `PARTY_MESSAGE job_id=${jobId} from party_id=${partyId} (${partyName}):\n${message}`,
+        text: `PARTY_MESSAGE job_id=${jobId} ${dateStamp()} from party_id=${partyId} (${partyName}):\n${message}`,
       },
     ];
     if (file) {
@@ -189,13 +229,13 @@ export class JobDriver {
    * One running turn per job; anything arriving meanwhile queues as its own
    * later turn (a turn's input cannot mix messages with approvals).
    */
-  private enqueue(jobId: string, input: TurnInputItem[]): void {
+  private enqueue(jobId: string, input: TurnInputItem[], session: SessionKind = 'main'): void {
     let rt = this.runtimes.get(jobId);
     if (!rt) {
       rt = { queue: [], running: false };
       this.runtimes.set(jobId, rt);
     }
-    rt.queue.push(input);
+    rt.queue.push({ input, session });
     if (!rt.running) void this.drain(jobId, rt);
   }
 
@@ -203,9 +243,9 @@ export class JobDriver {
     rt.running = true;
     try {
       while (rt.queue.length > 0) {
-        const input = rt.queue.shift()!;
+        const item = rt.queue.shift()!;
         try {
-          await this.runTurn(jobId, input);
+          await this.runTurn(jobId, item.input, item.session);
         } catch (err) {
           this.activity(jobId, 'status', `turn failed: ${(err as Error).message}`);
         }
@@ -215,31 +255,114 @@ export class JobDriver {
     }
   }
 
-  private sessionId(jobId: string): string {
+  private sessionId(jobId: string, kind: SessionKind): string {
     const job = this.db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId)).get();
-    if (!job?.trueforgeSessionId) throw new Error(`Job ${jobId} has no TrueForge session`);
-    return job.trueforgeSessionId;
+    const id = kind === 'planner' ? job?.plannerSessionId : job?.trueforgeSessionId;
+    if (!id) throw new Error(`Job ${jobId} has no ${kind} session`);
+    return id;
   }
 
   private activity(
     jobId: string,
-    kind: 'thread_started' | 'thread_done' | 'sandbox' | 'tool_call' | 'status',
+    kind:
+      | 'thread_started'
+      | 'thread_done'
+      | 'sandbox'
+      | 'tool_call'
+      | 'status'
+      | 'turn'
+      | 'mcp'
+      | 'gate',
     label: string,
     threadId?: string,
   ): void {
     this.hub.broadcast({ event: 'agent_activity', jobId, kind, label, threadId });
   }
 
-  private async runTurn(jobId: string, input: TurnInputItem[]): Promise<void> {
-    const sessionId = this.sessionId(jobId);
+  /** Human-readable tag for what woke the agent this turn. */
+  private describeInput(input: TurnInputItem[]): string {
+    const first = input[0] as { type?: string; content?: unknown } | undefined;
+    if (!first) return 'event';
+    if (first.type === 'user.tool_approval') return 'coordinator decision relayed';
+    const text =
+      typeof first.content === 'string'
+        ? first.content
+        : ((first.content as Array<{ type: string; text?: string }> | undefined)?.find(
+            (c) => c.type === 'text',
+          )?.text ?? '');
+    const tag = text.split(/[\s\n]/, 1)[0] ?? 'event';
+    return tag.toLowerCase().replace(/_/g, ' ');
+  }
+
+  /** Friendly one-liner for a completed harness tool call. */
+  private describeCall(
+    jobId: string,
+    call: { name: string; args: string },
+  ): { kind: 'tool_call' | 'sandbox' | 'thread_started'; label: string } | null {
+    let args: Record<string, unknown> = {};
+    try {
+      args = JSON.parse(call.args) as Record<string, unknown>;
+    } catch {
+      /* partial args — still report the call */
+    }
+    switch (call.name) {
+      case 'call_tool': {
+        const tool = String(args.tool_name ?? 'mcp tool');
+        const input = (args.input ?? {}) as Record<string, unknown>;
+        let detail = '';
+        if (typeof input.party_id === 'string') {
+          const party = this.db
+            .select()
+            .from(schema.parties)
+            .where(eq(schema.parties.id, input.party_id))
+            .get();
+          if (party) detail = ` → ${party.name}`;
+        }
+        if (tool === 'update_step_status' && input.status) detail = ` → ${String(input.status)}`;
+        if (tool === 'commit_decision' && input.action_type)
+          detail = ` → ${String(input.action_type)}`;
+        if (tool === 'check_resource_availability' && input.party_name)
+          detail = ` → ${String(input.party_name)}`;
+        if (tool === 'store_artifact' && input.name) detail = ` → ${String(input.name)}`;
+        if (tool === 'save_execution_plan') {
+          const plan = args.input as { plan?: unknown[] } | undefined;
+          detail = ` → ${plan?.plan?.length ?? '?'} steps`;
+        }
+        return { kind: 'tool_call', label: `mcp taro.${tool}${detail}` };
+      }
+      case 'exec':
+        return { kind: 'sandbox', label: 'sandbox: executing generated code' };
+      case 'create_sub_agent': {
+        const brief = String(args.instructions ?? '')
+          .replace(/\s+/g, ' ')
+          .slice(0, 70);
+        return { kind: 'thread_started', label: `subagent dispatched — "${brief}…"` };
+      }
+      case 'list_tools':
+      case 'get_tool_info':
+        return null; // discovery noise
+      default:
+        return { kind: 'tool_call', label: `harness ${call.name}` };
+    }
+  }
+
+  private async runTurn(
+    jobId: string,
+    input: TurnInputItem[],
+    session: SessionKind = 'main',
+  ): Promise<void> {
+    const sessionId = this.sessionId(jobId, session);
     const stream = await this.client.sessions.createTurnStream(sessionId, {
       input: input as never,
     });
+    this.activity(jobId, 'turn', `turn started — ${this.describeInput(input)}`);
 
     let turnId: string | null = null;
-    // Accumulate streamed tool-call arguments so approval gates can show
-    // what the agent wants to do: messageId:index -> {name, id, argsJson}
+    const counts = { tools: 0, sandbox: 0, subagents: 0 };
+    // Accumulate streamed tool-call arguments (keyed by message:index and by
+    // call id) so approvals and the activity feed can show real detail.
     const toolCalls = new Map<string, { name: string; id: string; args: string }>();
+    const byCallId = new Map<string, { name: string; id: string; args: string }>();
 
     for await (const ev of stream as AsyncIterable<Record<string, never>>) {
       const e = ev as {
@@ -248,6 +371,7 @@ export class JobDriver {
         turnId?: string;
         threadId?: string | null;
         sandboxId?: string;
+        toolCallId?: string;
         toolCalls?: Array<{
           index?: number;
           id?: string;
@@ -258,6 +382,9 @@ export class JobDriver {
         case 'turn.created':
           turnId = e.turnId ?? null;
           break;
+        case 'mcp.initialize':
+          this.activity(jobId, 'mcp', 'mcp connected — taro toolset loaded');
+          break;
         case 'model.message.delta':
           for (const tc of e.toolCalls ?? []) {
             const key = `${e.id}:${tc.index ?? 0}`;
@@ -266,18 +393,39 @@ export class JobDriver {
             if (tc.function?.name) entry.name = tc.function.name;
             if (tc.function?.arguments) entry.args += tc.function.arguments;
             toolCalls.set(key, entry);
+            if (entry.id) byCallId.set(entry.id, entry);
           }
           break;
+        case 'tool.response': {
+          const call = e.toolCallId ? byCallId.get(e.toolCallId) : undefined;
+          if (call) {
+            const described = this.describeCall(jobId, call);
+            if (described) {
+              if (described.kind === 'sandbox') counts.sandbox += 1;
+              else if (described.kind === 'thread_started') counts.subagents += 1;
+              else counts.tools += 1;
+              const thread =
+                e.threadId && e.threadId !== 'main' ? ` [${String(e.threadId).slice(0, 6)}]` : '';
+              this.activity(jobId, described.kind, `${described.label}${thread}`);
+            }
+          }
+          break;
+        }
         case 'thread.created':
-          this.activity(jobId, 'thread_started', 'subagent started', e.threadId ?? undefined);
+          this.activity(jobId, 'thread_started', 'subagent thread opened', e.threadId ?? undefined);
           break;
         case 'thread.done':
-          this.activity(jobId, 'thread_done', 'subagent finished', e.threadId ?? undefined);
+          this.activity(jobId, 'thread_done', 'subagent returned', e.threadId ?? undefined);
           break;
         case 'sandbox.created':
-          this.activity(jobId, 'sandbox', `sandbox provisioned (${e.sandboxId ?? 'unknown'})`);
+          this.activity(
+            jobId,
+            'sandbox',
+            `sandbox provisioned — ${String(e.sandboxId ?? '').split(':')[1] ?? 'isolated env'}`,
+          );
           break;
         case 'tool.approval_required':
+          this.activity(jobId, 'gate', 'approval gate raised — run paused for the coordinator');
           this.recordApprovals(jobId, e, toolCalls);
           break;
         default:
@@ -286,7 +434,11 @@ export class JobDriver {
     }
 
     if (turnId) await this.finalizeArtifacts(jobId, sessionId, turnId);
-    this.activity(jobId, 'status', 'turn finished');
+    this.activity(
+      jobId,
+      'turn',
+      `turn complete — ${counts.tools} tool calls · ${counts.subagents} subagents · ${counts.sandbox} sandbox runs`,
+    );
   }
 
   /** Persist tool.approval_required as pending approvals + notify the UI. */

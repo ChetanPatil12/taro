@@ -265,6 +265,29 @@ describe('MCP tools', () => {
     expect(v2.status).toBe('pending_download');
   });
 
+  it('post_party_message attaches artifact metadata as a document card', () => {
+    const stored = tools.store_artifact({
+      job_id: jobId,
+      name: 'quote.md',
+      kind: 'md',
+      sandbox_path: '/tmp/quote.md',
+    });
+    tools.post_party_message({
+      job_id: jobId,
+      party_id: sarahId,
+      direction: 'outbound',
+      message: 'Here is your quote.',
+      artifact_id: stored.artifact_id,
+    });
+    const ctx = tools.get_party_context({ job_id: jobId, party_id: sarahId });
+    const last = ctx.conversation_history.at(-1);
+    expect(last?.messageType).toBe('file');
+    expect(last?.metadata).toMatchObject({
+      artifactId: stored.artifact_id,
+      artifactName: 'quote.md',
+    });
+  });
+
   it('get_party_context returns history, active steps, and cross-party decisions', () => {
     tools.update_step_status({ job_id: jobId, step_id: step1, status: 'active' });
     tools.post_party_message({

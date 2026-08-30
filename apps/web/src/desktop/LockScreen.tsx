@@ -34,7 +34,7 @@ export function LockScreen({
   }
 
   return (
-    <div className="absolute inset-0 z-[2000] flex flex-col items-center justify-center bg-black/40 backdrop-blur-2xl">
+    <div className="absolute inset-0 z-[2000] flex flex-col items-center justify-center bg-black/25 backdrop-blur-[6px]">
       <div className={`flex flex-col items-center ${shake ? 'animate-[lockshake_0.4s]' : ''}`}>
         <div className="flex h-24 w-24 items-center justify-center rounded-full bg-white/20 text-[44px] text-white shadow-xl backdrop-blur-md">
           ✦
@@ -42,7 +42,7 @@ export function LockScreen({
         <p className="mt-4 text-[19px] font-semibold text-white [text-shadow:0_1px_4px_rgba(0,0,0,0.5)]">
           Taro Demo
         </p>
-        <p className="mt-1 max-w-[36ch] text-center text-[12px] leading-relaxed text-white/75">
+        <p className="mt-1 max-w-[36ch] text-center text-[12.5px] leading-relaxed text-white/95 [text-shadow:0_1px_3px_rgba(0,0,0,0.6)]">
           Browsing is open. To talk to the agent, unlock with your own OpenAI API key — bring your
           own key, pay only for what you run.
         </p>
@@ -72,13 +72,13 @@ export function LockScreen({
           <p className="mt-3 max-w-[44ch] text-center text-[12px] text-[#ffb3ad]">{error}</p>
         )}
 
-        <p className="mt-6 max-w-[46ch] text-center text-[10.5px] leading-relaxed text-white/50">
+        <p className="mt-6 max-w-[46ch] text-center text-[11px] leading-relaxed text-white/80 [text-shadow:0_1px_2px_rgba(0,0,0,0.6)]">
           Your key is validated with OpenAI, handed to the TrueForge harness in memory for model
           calls, and never written to disk or logs.
         </p>
         <button
           onClick={onDismiss}
-          className="mt-4 text-[12px] text-white/60 underline-offset-2 hover:text-white hover:underline"
+          className="mt-4 text-[12.5px] text-white/85 underline-offset-2 [text-shadow:0_1px_2px_rgba(0,0,0,0.6)] hover:text-white hover:underline"
         >
           Keep browsing without unlocking
         </button>

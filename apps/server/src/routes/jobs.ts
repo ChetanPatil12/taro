@@ -171,7 +171,7 @@ export function registerJobRoutes(app: FastifyInstance, filesDir: string, gate: 
     if (job.status !== 'awaiting_approval') {
       return reply.code(409).send({ error: `job is ${job.status}, not awaiting_approval` });
     }
-    app.driver.approvePlan(jobId);
+    await app.driver.approvePlan(jobId);
     return { status: 'active' };
   });
 
@@ -311,7 +311,10 @@ export function registerJobRoutes(app: FastifyInstance, filesDir: string, gate: 
     if (!artifact || artifact.path.startsWith('pending:') || !existsSync(artifact.path)) {
       return reply.code(404).send({ error: 'artifact not available' });
     }
-    reply.header('content-disposition', `attachment; filename="${artifact.name}"`);
+    const filename = artifact.name.includes('.')
+      ? artifact.name
+      : `${artifact.name}.${artifact.kind}`;
+    reply.header('content-disposition', `attachment; filename="${filename}"`);
     return reply.send(createReadStream(artifact.path));
   });
 }

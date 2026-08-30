@@ -128,10 +128,37 @@ function Chat({
                   })}
                 </span>
                 <p className="mt-0.5 whitespace-pre-wrap">{e.message}</p>
-                {e.messageType === 'file' && (
-                  <p className="mt-1 rounded bg-black/10 px-1.5 py-0.5 text-[10px]">
-                    📎 attachment
-                  </p>
+                {e.metadata?.artifactId ? (
+                  <a
+                    href={`/api/artifacts/${e.metadata.artifactId as string}/download`}
+                    className={`mt-1.5 flex items-center gap-2 rounded-lg border px-2.5 py-2 no-underline ${
+                      e.direction === 'outbound'
+                        ? 'border-white/30 bg-white/15 text-white hover:bg-white/25'
+                        : 'border-black/15 bg-white text-[#111] hover:bg-neutral-50'
+                    }`}
+                  >
+                    <span className="flex h-8 w-8 flex-none items-center justify-center rounded-md bg-[#e2574c] text-[13px] font-bold uppercase text-white">
+                      {String(e.metadata.artifactKind ?? 'doc').slice(0, 3)}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-[12px] font-semibold">
+                        {String(e.metadata.artifactName ?? 'document')}
+                      </span>
+                      <span
+                        className={`block text-[10px] ${
+                          e.direction === 'outbound' ? 'text-white/70' : 'text-black/50'
+                        }`}
+                      >
+                        Tap to download
+                      </span>
+                    </span>
+                  </a>
+                ) : (
+                  e.messageType === 'file' && (
+                    <p className="mt-1 rounded bg-black/10 px-1.5 py-0.5 text-[10px]">
+                      📎 attachment
+                    </p>
+                  )
                 )}
               </div>
             </div>
@@ -352,7 +379,7 @@ export function JobWindow({ jobId }: { jobId: string }) {
           <h4 className="px-1 text-[11px] font-bold uppercase tracking-wide text-[#6e6e73]">
             Run of work
           </h4>
-          <div className="mt-1.5">
+          <div className="mt-1.5 max-h-[45vh] overflow-y-auto">
             <StepList steps={steps} />
           </div>
         </div>

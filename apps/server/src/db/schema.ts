@@ -32,6 +32,7 @@ export const jobs = sqliteTable('jobs', {
   status: text('status').$type<JobStatus>().notNull().default('planning'),
   executionPlan: text('execution_plan', { mode: 'json' }).$type<ExecutionPlanItem[]>(),
   trueforgeSessionId: text('trueforge_session_id'),
+  plannerSessionId: text('planner_session_id'),
   createdAt: createdAt(),
 });
 

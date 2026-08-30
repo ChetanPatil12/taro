@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, LOCKED_EVENT } from './lib/api.js';
+import { LOCKED_EVENT } from './lib/api.js';
 import { LockScreen } from './desktop/LockScreen.js';
 import { useWallpaper } from './desktop/useWallpaper.js';
 import { DesktopIcons } from './desktop/DesktopIcons.js';
@@ -25,13 +25,11 @@ function Desktop() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [locked, setLocked] = useState(false);
 
+  // The lock screen appears only when a visitor tries to USE the agent
+  // (message, plan, approve) — browsing never prompts.
   useEffect(() => {
     const onLocked = () => setLocked(true);
     window.addEventListener(LOCKED_EVENT, onLocked);
-    api
-      .unlockStatus()
-      .then((s) => setLocked(s.required && !s.unlocked))
-      .catch(() => {});
     return () => window.removeEventListener(LOCKED_EVENT, onLocked);
   }, []);
 
@@ -105,7 +103,7 @@ function Desktop() {
             return (
               <Window
                 key={win.id}
-                win={{ ...win, title: `Agent Activity — ${win.title}` }}
+                win={{ ...win, title: `TrueForge Harness — ${win.title}` }}
                 focused={focused}
                 closable={false}
                 dark
