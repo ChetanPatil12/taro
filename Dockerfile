@@ -20,7 +20,6 @@ ENV NODE_ENV=production \
     HOST=0.0.0.0 \
     PORT=8000 \
     TRUEFORGE_URL=http://127.0.0.1:8790 \
-    MCP_PUBLIC_URL=http://127.0.0.1:8000/mcp \
     WEB_DIST=/app/apps/web/dist \
     DATABASE_PATH=/data/taro.db \
     ARTIFACTS_DIR=/data/artifacts \
