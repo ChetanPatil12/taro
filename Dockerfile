@@ -1,7 +1,8 @@
 # Taro — single-container deployment: TrueForge harness + Taro server + built web UI.
 FROM node:22-slim AS build
 WORKDIR /app
-RUN corepack enable
+# python3/make/g++: better-sqlite3 compiles natively via node-gyp at install.
+RUN corepack enable && apt-get update && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/*
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY apps/server/package.json apps/server/
 COPY apps/web/package.json apps/web/
