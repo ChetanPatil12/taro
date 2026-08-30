@@ -6,7 +6,7 @@
  */
 
 export type JobStatus =
-  'planning' | 'awaiting_approval' | 'active' | 'paused' | 'completed' | 'failed';
+  'planning' | 'awaiting_approval' | 'active' | 'paused' | 'completed' | 'failed' | 'cancelled';
 
 export type StepStatus = 'pending' | 'active' | 'complete' | 'blocked';
 
@@ -38,6 +38,8 @@ export interface ExecutionPlanItem {
   actions: string;
   parties: string[];
   decisionsNeeded: string[];
+  /** Step titles this step depends on — the plan defines the DAG. */
+  dependsOn?: string[];
 }
 
 export interface Party {
@@ -48,6 +50,8 @@ export interface Party {
   channel: string;
   instructions: string;
   status: string;
+  /** Exactly one party per job: the human authority the agent reports to. */
+  isCoordinator: boolean;
 }
 
 export interface Step {
@@ -136,9 +140,15 @@ export interface RegistryCommitment {
 /** Input shape for creating a job from the form or a preset. */
 export interface JobDefinition {
   title: string;
+  /** Freeform brief — the agent derives the step DAG from this at plan time. */
   description: string;
-  parties: Array<Pick<Party, 'name' | 'role' | 'channel' | 'instructions'>>;
-  steps: Array<
+  parties: Array<
+    Pick<Party, 'name' | 'role' | 'channel' | 'instructions'> & {
+      isCoordinator?: boolean;
+    }
+  >;
+  /** Optional pre-defined steps (presets); omit to let the agent derive them. */
+  steps?: Array<
     Pick<Step, 'title' | 'description' | 'requiredParties' | 'dependsOn' | 'conditions'>
   >;
 }

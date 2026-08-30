@@ -47,7 +47,7 @@ export function buildMcpServer(tools: TaroTools): McpServer {
 
   register(
     'post_party_message',
-    "Record and deliver a message on a party's channel. direction='outbound' for messages TO the party (this sends it to their chat), 'inbound' when relaying something they said.",
+    "Record and deliver a message on a party's channel. direction='outbound' for messages TO the party (this sends it to their chat), 'inbound' when relaying something they said. Pass artifact_id (from store_artifact) to attach a document — it renders as a file card in the chat.",
     {
       job_id: z.string(),
       party_id: z.string(),
@@ -55,6 +55,7 @@ export function buildMcpServer(tools: TaroTools): McpServer {
       message: z.string(),
       message_type: z.enum(MESSAGE_TYPES).optional(),
       metadata: z.record(z.string(), z.unknown()).optional(),
+      artifact_id: z.string().optional(),
     },
     tools.post_party_message,
   );
@@ -115,7 +116,7 @@ export function buildMcpServer(tools: TaroTools): McpServer {
 
   register(
     'save_execution_plan',
-    'Persist the generated execution plan for user review. Sets the job to awaiting_approval. One entry per step: what you will do, with which parties, and what decisions you need.',
+    'Persist the generated execution plan for user review; sets the job to awaiting_approval. THE PLAN DEFINES THE STEP DAG: existing steps are replaced, one step per item, in order. Per item: what you will do, with which parties, decisions you need, and depends_on (step_titles of prerequisite items).',
     {
       job_id: z.string(),
       plan: z.array(
@@ -124,6 +125,7 @@ export function buildMcpServer(tools: TaroTools): McpServer {
           actions: z.string(),
           parties: z.array(z.string()),
           decisions_needed: z.array(z.string()),
+          depends_on: z.array(z.string()).optional(),
         }),
       ),
     },

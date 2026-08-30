@@ -156,6 +156,7 @@ export function createTools(db: TaroDb, hub: WsHub) {
       message: string;
       message_type?: MessageType;
       metadata?: Record<string, unknown>;
+      artifact_id?: string;
     }) {
       requireJob(args.job_id);
       const party = db
@@ -164,13 +165,35 @@ export function createTools(db: TaroDb, hub: WsHub) {
         .where(and(eq(schema.parties.id, args.party_id), eq(schema.parties.jobId, args.job_id)))
         .get();
       if (!party) throw new Error(`Unknown party_id ${args.party_id} for job ${args.job_id}`);
+
+      // Attaching an artifact renders it as a document card in the chat.
+      let metadata = args.metadata ?? null;
+      let messageType = args.message_type ?? 'chat';
+      if (args.artifact_id) {
+        const artifact = db
+          .select()
+          .from(schema.artifacts)
+          .where(
+            and(eq(schema.artifacts.id, args.artifact_id), eq(schema.artifacts.jobId, args.job_id)),
+          )
+          .get();
+        if (!artifact) throw new Error(`Unknown artifact_id ${args.artifact_id}`);
+        metadata = {
+          ...(metadata ?? {}),
+          artifactId: artifact.id,
+          artifactName: artifact.name,
+          artifactKind: artifact.kind,
+        };
+        messageType = 'file';
+      }
+
       const row = appendLog({
         jobId: args.job_id,
         partyId: args.party_id,
         direction: args.direction,
         message: args.message,
-        messageType: args.message_type ?? 'chat',
-        metadata: args.metadata ?? null,
+        messageType,
+        metadata,
       });
       return { log_id: row.id, status: 'recorded' };
     },
@@ -401,22 +424,42 @@ export function createTools(db: TaroDb, hub: WsHub) {
         actions: string;
         parties: string[];
         decisions_needed: string[];
+        depends_on?: string[];
       }>;
     }) {
       requireJob(args.job_id);
+      if (args.plan.length === 0) throw new Error('plan must contain at least one item');
       const plan = args.plan.map((p) => ({
         stepTitle: p.step_title,
         actions: p.actions,
         parties: p.parties,
         decisionsNeeded: p.decisions_needed,
+        dependsOn: p.depends_on ?? [],
       }));
+
+      // The plan DEFINES the job's step DAG: replace steps with plan items.
+      db.delete(schema.steps).where(eq(schema.steps.jobId, args.job_id)).run();
+      plan.forEach((item, i) => {
+        db.insert(schema.steps)
+          .values({
+            id: randomUUID(),
+            jobId: args.job_id,
+            sequenceNum: i + 1,
+            title: item.stepTitle,
+            description: item.actions,
+            requiredParties: item.parties,
+            dependsOn: item.dependsOn,
+          })
+          .run();
+      });
+
       db.update(schema.jobs)
         .set({ executionPlan: plan, status: 'awaiting_approval' })
         .where(eq(schema.jobs.id, args.job_id))
         .run();
       hub.broadcast({ event: 'plan_ready', jobId: args.job_id, executionPlan: plan });
       hub.broadcast({ event: 'job_status', jobId: args.job_id, status: 'awaiting_approval' });
-      return { saved: true, steps_planned: plan.length };
+      return { saved: true, steps_defined: plan.length };
     },
 
     /**

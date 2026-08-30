@@ -32,6 +32,7 @@ export const jobs = sqliteTable('jobs', {
   status: text('status').$type<JobStatus>().notNull().default('planning'),
   executionPlan: text('execution_plan', { mode: 'json' }).$type<ExecutionPlanItem[]>(),
   trueforgeSessionId: text('trueforge_session_id'),
+  plannerSessionId: text('planner_session_id'),
   createdAt: createdAt(),
 });
 
@@ -47,6 +48,7 @@ export const parties = sqliteTable(
     channel: text('channel').notNull().default('chat'),
     instructions: text('instructions').notNull().default(''),
     status: text('status').notNull().default('idle'),
+    isCoordinator: integer('is_coordinator').notNull().default(0),
   },
   (t) => [
     index('parties_job_idx').on(t.jobId),
@@ -147,6 +149,8 @@ export const approvals = sqliteTable(
     decision: text('decision').$type<ApprovalDecision>(),
     rejectionReason: text('rejection_reason'),
     decidedAt: text('decided_at'),
+    /** 1 once this decision has been sent back to the harness in a resume turn. */
+    resumed: integer('resumed').notNull().default(0),
     createdAt: createdAt(),
   },
   (t) => [index('approvals_job_idx').on(t.jobId)],

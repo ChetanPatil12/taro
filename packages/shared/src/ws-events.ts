@@ -66,7 +66,8 @@ export interface ArtifactAddedEvent {
 export interface AgentActivityEvent {
   event: 'agent_activity';
   jobId: string;
-  kind: 'thread_started' | 'thread_done' | 'sandbox' | 'tool_call' | 'status';
+  kind:
+    'thread_started' | 'thread_done' | 'sandbox' | 'tool_call' | 'status' | 'turn' | 'mcp' | 'gate';
   label: string;
   threadId?: string;
 }

@@ -4,7 +4,7 @@ import { loadConfig } from './config.js';
 import { createDb } from './db/index.js';
 import { JobDriver } from './trueforge/driver.js';
 import { ensureTaroMcpServer } from './trueforge/ensure.js';
-import { ensureOrchestratorAgent } from './trueforge/orchestrator.js';
+import { ensureAgents } from './trueforge/orchestrator.js';
 
 const config = loadConfig();
 const db = createDb(config.databasePath);
@@ -15,19 +15,35 @@ const app = await buildApp({
   filesDir: config.filesDir,
   logger: true,
   mcpSharedSecret: config.mcpSharedSecret,
+  requireUnlock: config.requireUnlock,
+  trueforgeUrl: config.trueforgeUrl,
+  webDist: config.webDist,
   makeDriver: (hub) => new JobDriver(db, hub, client, config.trueforgeUrl, config.artifactsDir),
 });
 
-try {
-  const mcpUrl = process.env.MCP_PUBLIC_URL ?? `http://localhost:${config.port}/mcp`;
-  await ensureTaroMcpServer(config.trueforgeUrl, mcpUrl, config.mcpSharedSecret);
-  await ensureOrchestratorAgent(client, config.orchestratorModel);
-  app.log.info('taro MCP server + orchestrator agent registered with TrueForge');
-} catch (err) {
-  app.log.warn(
-    { err },
-    'could not register orchestrator agent — is TrueForge running? Jobs will fail to start until it is.',
-  );
+async function registerWithTrueForge(): Promise<boolean> {
+  try {
+    const mcpUrl = process.env.MCP_PUBLIC_URL ?? `http://localhost:${config.port}/mcp`;
+    await ensureTaroMcpServer(config.trueforgeUrl, mcpUrl, config.mcpSharedSecret);
+    await ensureAgents(client, config.orchestratorModel, config.plannerModel);
+    app.log.info('taro MCP server + planner/orchestrator agents registered with TrueForge');
+    return true;
+  } catch (err) {
+    app.log.warn(
+      { err },
+      'TrueForge registration failed — retrying every 15s until it is reachable.',
+    );
+    return false;
+  }
+}
+
+if (!(await registerWithTrueForge())) {
+  const retry = setInterval(() => {
+    void registerWithTrueForge().then((ok) => {
+      if (ok) clearInterval(retry);
+    });
+  }, 15_000);
+  retry.unref();
 }
 
 app.listen({ port: config.port, host: config.host }).catch((err) => {

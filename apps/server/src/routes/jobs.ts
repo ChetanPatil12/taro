@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createReadStream, existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { asc, desc, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import type { JobDefinition } from '@taro/shared';
@@ -16,8 +16,10 @@ interface PartyMessageBody {
   file?: { name: string; mime: string; data_base64: string };
 }
 
+import type { UnlockGate } from './unlock.js';
+
 /** REST API consumed by the web client. */
-export function registerJobRoutes(app: FastifyInstance, filesDir: string): void {
+export function registerJobRoutes(app: FastifyInstance, filesDir: string, gate: UnlockGate): void {
   const db = app.db;
   const tools = createTools(db, app.hub);
 
@@ -38,10 +40,11 @@ export function registerJobRoutes(app: FastifyInstance, filesDir: string): void 
           role: p.role,
           channel: p.channel || 'chat',
           instructions: p.instructions,
+          isCoordinator: p.isCoordinator ? 1 : 0,
         })
         .run();
     }
-    def.steps.forEach((s, i) => {
+    (def.steps ?? []).forEach((s, i) => {
       db.insert(schema.steps)
         .values({
           id: randomUUID(),
@@ -71,19 +74,40 @@ export function registerJobRoutes(app: FastifyInstance, filesDir: string): void 
   });
 
   app.post('/api/jobs', async (request, reply) => {
+    if (gate.block(request, reply)) return;
     const def = request.body as JobDefinition;
     if (!def?.title || !Array.isArray(def.parties) || def.parties.length === 0) {
       return reply.code(400).send({ error: 'title and at least one party are required' });
     }
-    if (!Array.isArray(def.steps) || def.steps.length === 0) {
-      return reply.code(400).send({ error: 'at least one step is required' });
+    // Steps are optional — the agent derives the DAG from the brief. But a
+    // coordinator is not: every job needs exactly one approval authority.
+    const coordinators = def.parties.filter((p) => p.isCoordinator);
+    if (coordinators.length !== 1) {
+      return reply.code(400).send({ error: 'exactly one party must be marked as the coordinator' });
     }
     const jobId = insertJobFromDefinition(def);
-    await app.driver.startJob(jobId);
+    try {
+      await app.driver.startJob(jobId);
+    } catch (err) {
+      db.update(schema.jobs).set({ status: 'failed' }).where(eq(schema.jobs.id, jobId)).run();
+      return reply
+        .code(502)
+        .send({ error: `agent session could not start: ${(err as Error).message}`, job_id: jobId });
+    }
     return reply.code(201).send({ job_id: jobId });
   });
 
+  app.get('/api/presets/roofing', async () => ({
+    definition: ROOFING_PRESET,
+    seeded_conflict: {
+      party: ROOFING_REGISTRY_SEED.partyName,
+      job_title: ROOFING_REGISTRY_SEED.jobTitle,
+      note: 'This party is pre-booked on another job, so a cross-job conflict will surface during scheduling.',
+    },
+  }));
+
   app.post('/api/jobs/preset', async (_request, reply) => {
+    if (gate.block(_request, reply)) return;
     const jobId = insertJobFromDefinition(ROOFING_PRESET);
 
     // Seed the cross-job commitment (dates relative to today so the
@@ -92,6 +116,10 @@ export function registerJobRoutes(app: FastifyInstance, filesDir: string): void 
     start.setUTCDate(start.getUTCDate() + ROOFING_REGISTRY_SEED.startOffsetDays);
     const end = new Date(start);
     end.setUTCDate(end.getUTCDate() + ROOFING_REGISTRY_SEED.durationDays - 1);
+    // Idempotent seed: repeated demo loads must not accumulate duplicates.
+    db.delete(schema.partyRegistry)
+      .where(eq(schema.partyRegistry.jobId, ROOFING_REGISTRY_SEED.jobId))
+      .run();
     db.insert(schema.partyRegistry)
       .values({
         id: randomUUID(),
@@ -104,7 +132,14 @@ export function registerJobRoutes(app: FastifyInstance, filesDir: string): void 
       })
       .run();
 
-    await app.driver.startJob(jobId);
+    try {
+      await app.driver.startJob(jobId);
+    } catch (err) {
+      db.update(schema.jobs).set({ status: 'failed' }).where(eq(schema.jobs.id, jobId)).run();
+      return reply
+        .code(502)
+        .send({ error: `agent session could not start: ${(err as Error).message}`, job_id: jobId });
+    }
     return reply.code(201).send({ job_id: jobId });
   });
 
@@ -129,17 +164,47 @@ export function registerJobRoutes(app: FastifyInstance, filesDir: string): void 
   });
 
   app.patch('/api/jobs/:jobId/approve-plan', async (request, reply) => {
+    if (gate.block(request, reply)) return;
     const { jobId } = request.params as { jobId: string };
     const job = db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId)).get();
     if (!job) return reply.code(404).send({ error: 'job not found' });
     if (job.status !== 'awaiting_approval') {
       return reply.code(409).send({ error: `job is ${job.status}, not awaiting_approval` });
     }
-    app.driver.approvePlan(jobId);
+    await app.driver.approvePlan(jobId);
     return { status: 'active' };
   });
 
+  app.post('/api/jobs/:jobId/plan-feedback', async (request, reply) => {
+    if (gate.block(request, reply)) return;
+    const { jobId } = request.params as { jobId: string };
+    const body = request.body as { feedback?: string };
+    if (!body?.feedback?.trim()) {
+      return reply.code(400).send({ error: 'feedback is required' });
+    }
+    const job = db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId)).get();
+    if (!job) return reply.code(404).send({ error: 'job not found' });
+    if (job.status !== 'awaiting_approval') {
+      return reply.code(409).send({ error: `job is ${job.status}, not awaiting_approval` });
+    }
+    app.driver.requestPlanRevision(jobId, body.feedback.trim());
+    return { status: 'revising' };
+  });
+
+  app.post('/api/jobs/:jobId/reject-plan', async (request, reply) => {
+    if (gate.block(request, reply)) return;
+    const { jobId } = request.params as { jobId: string };
+    const job = db.select().from(schema.jobs).where(eq(schema.jobs.id, jobId)).get();
+    if (!job) return reply.code(404).send({ error: 'job not found' });
+    if (job.status !== 'awaiting_approval') {
+      return reply.code(409).send({ error: `job is ${job.status}, not awaiting_approval` });
+    }
+    app.driver.rejectPlan(jobId);
+    return { status: 'cancelled' };
+  });
+
   app.post('/api/jobs/:jobId/message', async (request, reply) => {
+    if (gate.block(request, reply)) return;
     const { jobId } = request.params as { jobId: string };
     const body = request.body as PartyMessageBody;
     if (!body?.party_id || !body?.message) {
@@ -162,7 +227,10 @@ export function registerJobRoutes(app: FastifyInstance, filesDir: string): void 
       }
       mkdirSync(filesDir, { recursive: true });
       const fileId = randomUUID();
-      const path = join(filesDir, `${fileId}-${body.file.name}`);
+      // basename + charset allowlist: client filenames are untrusted and
+      // must never influence the directory part of the path.
+      const safeName = basename(body.file.name).replace(/[^\w.\- ]/g, '_') || 'upload';
+      const path = join(filesDir, `${fileId}-${safeName}`);
       writeFileSync(path, bytes);
       db.insert(schema.files)
         .values({
@@ -199,6 +267,7 @@ export function registerJobRoutes(app: FastifyInstance, filesDir: string): void 
   });
 
   app.post('/api/jobs/:jobId/approvals/:approvalId', async (request, reply) => {
+    if (gate.block(request, reply)) return;
     const { jobId, approvalId } = request.params as { jobId: string; approvalId: string };
     const body = request.body as { decision: 'approved' | 'rejected'; reason?: string };
     if (body?.decision !== 'approved' && body?.decision !== 'rejected') {
@@ -226,7 +295,7 @@ export function registerJobRoutes(app: FastifyInstance, filesDir: string): void 
         name: a.name,
         kind: a.kind,
         version: a.version,
-        ready: !a.path.startsWith('pending:'),
+        ready: !a.path.startsWith('pending:') && !a.path.startsWith('failed:'),
         createdAt: a.createdAt,
       })),
     };
@@ -242,7 +311,10 @@ export function registerJobRoutes(app: FastifyInstance, filesDir: string): void 
     if (!artifact || artifact.path.startsWith('pending:') || !existsSync(artifact.path)) {
       return reply.code(404).send({ error: 'artifact not available' });
     }
-    reply.header('content-disposition', `attachment; filename="${artifact.name}"`);
+    const filename = artifact.name.includes('.')
+      ? artifact.name
+      : `${artifact.name}.${artifact.kind}`;
+    reply.header('content-disposition', `attachment; filename="${filename}"`);
     return reply.send(createReadStream(artifact.path));
   });
 }

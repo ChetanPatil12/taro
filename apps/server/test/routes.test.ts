@@ -17,6 +17,12 @@ class StubDriver {
   decideApproval(...args: unknown[]) {
     this.calls.push({ method: 'decideApproval', args });
   }
+  requestPlanRevision(...args: unknown[]) {
+    this.calls.push({ method: 'requestPlanRevision', args });
+  }
+  rejectPlan(...args: unknown[]) {
+    this.calls.push({ method: 'rejectPlan', args });
+  }
 }
 
 describe('REST API', () => {
@@ -48,15 +54,8 @@ describe('REST API', () => {
       payload: {
         title: 'Test job',
         description: 'desc',
-        parties: [{ name: 'Alice', role: 'owner', channel: 'chat', instructions: '' }],
-        steps: [
-          {
-            title: 'Step 1',
-            description: '',
-            requiredParties: ['Alice'],
-            dependsOn: [],
-            conditions: '',
-          },
+        parties: [
+          { name: 'Alice', role: 'owner', channel: 'chat', instructions: '', isCoordinator: true },
         ],
       },
     });
@@ -66,7 +65,22 @@ describe('REST API', () => {
 
     const state = await app.inject({ method: 'GET', url: `/api/jobs/${job_id}` });
     expect(state.json().parties).toHaveLength(1);
-    expect(state.json().steps).toHaveLength(1);
+    expect(state.json().parties[0].isCoordinator).toBe(1);
+    expect(state.json().steps).toHaveLength(0); // agent derives the DAG at plan time
+  });
+
+  it('rejects a job without exactly one coordinator', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/jobs',
+      payload: {
+        title: 'X',
+        description: 'Y',
+        parties: [{ name: 'A', role: 'r', channel: 'chat', instructions: '' }],
+      },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toMatch(/coordinator/);
   });
 
   it('loads the roofing preset and seeds the cross-job registry', async () => {
@@ -76,7 +90,11 @@ describe('REST API', () => {
 
     const state = await app.inject({ method: 'GET', url: `/api/jobs/${job_id}` });
     expect(state.json().parties).toHaveLength(4);
-    expect(state.json().steps).toHaveLength(8);
+    // Brief-only preset: the agent derives steps at plan time.
+    expect(state.json().steps).toHaveLength(0);
+    expect(
+      state.json().parties.find((p: { isCoordinator: number }) => p.isCoordinator === 1).name,
+    ).toBe('Mike Torres');
 
     // The seed lives in party_registry — verify through the DB.
     const rows = app.db
@@ -113,6 +131,79 @@ describe('REST API', () => {
     expect(log.json().log.some((e: { message: string }) => e.message.includes('Thursday'))).toBe(
       true,
     );
+  });
+
+  it('loads the preset twice without duplicating registry commitments', async () => {
+    await app.inject({ method: 'POST', url: '/api/jobs/preset' });
+    await app.inject({ method: 'POST', url: '/api/jobs/preset' });
+    const rows = app.db
+      .select()
+      .from((await import('../src/db/index.js')).schema.partyRegistry)
+      .all();
+    expect(rows).toHaveLength(1);
+  });
+
+  it('stores uploads under filesDir even for traversal filenames', async () => {
+    const create = await app.inject({ method: 'POST', url: '/api/jobs/preset' });
+    const { job_id } = create.json();
+    const state = await app.inject({ method: 'GET', url: `/api/jobs/${job_id}` });
+    const sarah = state.json().parties.find((p: { name: string }) => p.name === 'Sarah Chen');
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/jobs/${job_id}/message`,
+      payload: {
+        party_id: sarah.id,
+        message: 'file attached',
+        file: {
+          name: '../../../../tmp/evil.txt',
+          mime: 'text/plain',
+          data_base64: Buffer.from('x').toString('base64'),
+        },
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const files = app.db
+      .select()
+      .from((await import('../src/db/index.js')).schema.files)
+      .all();
+    expect(files).toHaveLength(1);
+    expect(files[0]?.path.startsWith('/tmp/taro-test-files/')).toBe(true);
+    expect(files[0]?.path.includes('..')).toBe(false);
+  });
+
+  it('routes plan feedback only while awaiting approval', async () => {
+    const create = await app.inject({ method: 'POST', url: '/api/jobs/preset' });
+    const { job_id } = create.json();
+    const bad = await app.inject({
+      method: 'POST',
+      url: `/api/jobs/${job_id}/plan-feedback`,
+      payload: { feedback: 'add a permit step' },
+    });
+    expect(bad.statusCode).toBe(409); // still 'planning' with the stub driver
+
+    app.db
+      .update((await import('../src/db/index.js')).schema.jobs)
+      .set({ status: 'awaiting_approval' })
+      .run();
+    const ok = await app.inject({
+      method: 'POST',
+      url: `/api/jobs/${job_id}/plan-feedback`,
+      payload: { feedback: 'add a permit step' },
+    });
+    expect(ok.statusCode).toBe(200);
+    expect(driver.calls.some((c) => c.method === 'requestPlanRevision')).toBe(true);
+
+    const reject = await app.inject({ method: 'POST', url: `/api/jobs/${job_id}/reject-plan` });
+    expect(reject.statusCode).toBe(200);
+    expect(driver.calls.some((c) => c.method === 'rejectPlan')).toBe(true);
+  });
+
+  it('serves the preset preview', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/presets/roofing' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().definition.parties).toHaveLength(4);
+    expect(res.json().seeded_conflict.party).toBe("Bob's Roofing");
   });
 
   it('validates approval decisions', async () => {

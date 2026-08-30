@@ -210,6 +210,31 @@ describe('MCP tools', () => {
     expect(hub.ofType('plan_ready')).toHaveLength(1);
   });
 
+  it('save_execution_plan replaces the step DAG with plan items', () => {
+    tools.save_execution_plan({
+      job_id: jobId,
+      plan: [
+        {
+          step_title: 'Kickoff',
+          actions: 'Contact everyone',
+          parties: ['Sarah'],
+          decisions_needed: [],
+        },
+        {
+          step_title: 'Inspect',
+          actions: 'On-site visit',
+          parties: ['Bob'],
+          decisions_needed: ['date'],
+          depends_on: ['Kickoff'],
+        },
+      ],
+    });
+    const state = tools.get_job_state({ job_id: jobId });
+    expect(state.steps).toHaveLength(2); // the 2 seeded steps were replaced
+    expect(state.steps[1]?.dependsOn).toEqual(['Kickoff']);
+    expect(state.job.status).toBe('awaiting_approval');
+  });
+
   it('commit_decision records a decision log entry', () => {
     tools.commit_decision({
       job_id: jobId,
@@ -238,6 +263,29 @@ describe('MCP tools', () => {
     expect(v1.version).toBe(1);
     expect(v2.version).toBe(2);
     expect(v2.status).toBe('pending_download');
+  });
+
+  it('post_party_message attaches artifact metadata as a document card', () => {
+    const stored = tools.store_artifact({
+      job_id: jobId,
+      name: 'quote.md',
+      kind: 'md',
+      sandbox_path: '/tmp/quote.md',
+    });
+    tools.post_party_message({
+      job_id: jobId,
+      party_id: sarahId,
+      direction: 'outbound',
+      message: 'Here is your quote.',
+      artifact_id: stored.artifact_id,
+    });
+    const ctx = tools.get_party_context({ job_id: jobId, party_id: sarahId });
+    const last = ctx.conversation_history.at(-1);
+    expect(last?.messageType).toBe('file');
+    expect(last?.metadata).toMatchObject({
+      artifactId: stored.artifact_id,
+      artifactName: 'quote.md',
+    });
   });
 
   it('get_party_context returns history, active steps, and cross-party decisions', () => {

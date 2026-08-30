@@ -11,7 +11,9 @@ describe('GET /api/health', () => {
     });
     const res = await app.inject({ method: 'GET', url: '/api/health' });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ status: 'ok', service: 'taro-server' });
+    const body = res.json();
+    expect(body).toMatchObject({ status: 'ok', service: 'taro-server' });
+    expect(typeof body.trueforge).toBe('boolean'); // reflects harness reachability
     await app.close();
   });
 });
