@@ -3,8 +3,15 @@
 # TrueForge stays on the container's loopback; only Taro (8000) is exposed.
 set -e
 
-npx --yes @truefoundry/trueforge@latest &
+# Pin TrueForge to its own port: platforms like Railway inject PORT for the
+# public service, and TrueForge would otherwise grab it.
+PORT=8790 npx --yes @truefoundry/trueforge@latest &
 TRUEFORGE_PID=$!
+
+# Taro binds the platform-injected PORT (falls back to 8000 locally); the
+# MCP callback URL must follow it.
+TARO_PORT="${PORT:-8000}"
+export MCP_PUBLIC_URL="${MCP_PUBLIC_URL_OVERRIDE:-http://127.0.0.1:${TARO_PORT}/mcp}"
 
 # Wait for the harness before Taro registers the agent + MCP server.
 i=0
