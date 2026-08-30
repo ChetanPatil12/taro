@@ -26,8 +26,8 @@ ENV NODE_ENV=production \
     FILES_DIR=/data/files \
     REQUIRE_UNLOCK=true
 
-# /data survives restarts when mounted as a volume.
-VOLUME /data
+# Mount persistent storage at /data (e.g. a Railway Volume); the server
+# creates the directory tree itself if none is mounted.
 
 EXPOSE 8000
 COPY deploy/start.sh /start.sh
