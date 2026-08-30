@@ -104,11 +104,14 @@ function reduce(state: WmState, action: WmAction): WmState {
         ),
       };
     }
-    case 'retitle':
+    case 'retitle': {
+      const target = state.windows.find((w) => w.id === action.id);
+      if (!target || target.title === action.title) return state; // no-op: avoid rerender loops
       return {
         ...state,
         windows: state.windows.map((w) => (w.id === action.id ? { ...w, title: action.title } : w)),
       };
+    }
     default:
       return state;
   }

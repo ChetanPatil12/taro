@@ -23,6 +23,7 @@ type SessionKind = 'planner' | 'main';
 interface QueuedTurn {
   input: TurnInputItem[];
   session: SessionKind;
+  retries?: number;
 }
 
 interface JobRuntime {
@@ -248,6 +249,36 @@ export class JobDriver {
           await this.runTurn(jobId, item.input, item.session);
         } catch (err) {
           this.activity(jobId, 'status', `turn failed: ${(err as Error).message}`);
+          const isApprovalTurn = item.input.every((i) => i.type === 'user.tool_approval');
+          if (isApprovalTurn) {
+            // Approval resumes are idempotent on the harness side — retry
+            // once; if it still fails, un-mark the decisions as resumed so
+            // the paused run isn't silently orphaned.
+            if ((item.retries ?? 0) < 1) {
+              rt.queue.unshift({ ...item, retries: (item.retries ?? 0) + 1 });
+            } else {
+              for (const i of item.input) {
+                const callId = (i as { toolCallId?: string }).toolCallId;
+                if (callId) {
+                  this.db
+                    .update(schema.approvals)
+                    .set({ resumed: 0 })
+                    .where(
+                      and(
+                        eq(schema.approvals.jobId, jobId),
+                        eq(schema.approvals.toolCallId, callId),
+                      ),
+                    )
+                    .run();
+                }
+              }
+              this.activity(
+                jobId,
+                'status',
+                'approval resume failed twice — decisions restored for retry',
+              );
+            }
+          }
         }
       }
     } finally {

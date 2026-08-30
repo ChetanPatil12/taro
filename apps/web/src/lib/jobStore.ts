@@ -79,6 +79,9 @@ interface Entry {
   refs: number;
   retry: ReturnType<typeof setTimeout> | null;
   closed: boolean;
+  /** Events received while a REST snapshot is in flight; replayed after. */
+  backlog: TaroWsEvent[];
+  snapshotting: boolean;
 }
 
 /**
@@ -93,22 +96,30 @@ function notify(entry: Entry) {
 }
 
 async function snapshot(jobId: string, entry: Entry) {
+  entry.snapshotting = true;
   try {
     const [snap, log, artifacts] = await Promise.all([
       api.getJob(jobId),
       api.getLog(jobId),
       api.listArtifacts(jobId),
     ]);
-    entry.state = {
+    let state: LiveJobState = {
       ...snap,
       log: log.log,
       artifacts: artifacts.artifacts,
       activity: entry.state?.activity ?? [],
       connected: entry.socket?.readyState === WebSocket.OPEN,
     };
+    // Events that raced the snapshot are replayed on top so nothing
+    // arriving over the socket is ever lost to an in-flight REST read.
+    for (const ev of entry.backlog) state = applyEvent(state, ev);
+    entry.backlog = [];
+    entry.state = state;
     notify(entry);
   } catch {
     // job may not exist yet; a later reconnect will retry
+  } finally {
+    entry.snapshotting = false;
   }
 }
 
@@ -125,9 +136,13 @@ function connect(jobId: string, entry: Entry) {
     void snapshot(jobId, entry);
   };
   socket.onmessage = (msg) => {
-    if (!entry.state) return;
     try {
-      entry.state = applyEvent(entry.state, JSON.parse(msg.data as string) as TaroWsEvent);
+      const ev = JSON.parse(msg.data as string) as TaroWsEvent;
+      if (!entry.state || entry.snapshotting) {
+        entry.backlog.push(ev);
+        return;
+      }
+      entry.state = applyEvent(entry.state, ev);
       notify(entry);
     } catch {
       /* ignore malformed frames */
@@ -152,6 +167,8 @@ function ensure(jobId: string): Entry {
       refs: 0,
       retry: null,
       closed: false,
+      backlog: [],
+      snapshotting: false,
     };
     entries.set(jobId, entry);
     void snapshot(jobId, entry);

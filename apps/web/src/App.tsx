@@ -36,7 +36,10 @@ function Desktop() {
   useEffect(() => {
     const probe = () =>
       fetch('/api/health')
-        .then((r) => setLive(r.ok))
+        .then(async (r) => {
+          const body = (await r.json().catch(() => ({}))) as { trueforge?: boolean };
+          setLive(r.ok && body.trueforge === true);
+        })
         .catch(() => setLive(false));
     void probe();
     const t = setInterval(probe, 10_000);

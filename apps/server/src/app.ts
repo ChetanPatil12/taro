@@ -47,7 +47,20 @@ export async function buildApp(opts: BuildAppOptions) {
 
   await app.register(websocket);
 
-  app.get('/api/health', async () => ({ status: 'ok', service: 'taro-server' }));
+  app.get('/api/health', async () => {
+    // "live" must mean the HARNESS is reachable, not just this process.
+    let trueforge: boolean;
+    try {
+      const res = await fetch(
+        `${opts.trueforgeUrl ?? 'http://localhost:8790'}/api/v1/capabilities`,
+        { signal: AbortSignal.timeout(1500) },
+      );
+      trueforge = res.ok;
+    } catch {
+      trueforge = false;
+    }
+    return { status: 'ok', service: 'taro-server', trueforge };
+  });
 
   // Live event stream, one connection per watched job.
   app.get('/ws/:jobId', { websocket: true }, (socket, req) => {
